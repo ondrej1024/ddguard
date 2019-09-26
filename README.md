@@ -58,66 +58,6 @@ These are the logical software components which are needed to make it all work t
 
 
 
-## Installation and configuration
-
-### The Smartphone app
-
-The smartphone app for the current DD-Guard prototype is based on the [Blynk](https://blynk.io) IoT platform. It allows for incredibly quick and easy implementation of the features that are needed for DD-Guard. However, while prototyping with the platform is free, generating and publishing the final app is a paid service which is *really* expensive.
-
-*Therefore the final goal for this project must be a native open source smartphone app which we have complete control of. Contributors who want to help with this are very welcome.*
-
-To use the Blynk based DD-Guard app you have to install the [Blynk app](http://j.mp/blynk_Android) on your smartphone and register to the service. After you have logged in you just scan the QR code below which will load the DD-Guard app project.
-
-![blynk_qr_clone_project](img/blynk_qr_clone_project.png)
-
-In the project settings you still have to add your gateway and create the access token. This should be quite straightforward but if you need help check the [Blynk documentation](https://docs.blynk.cc). Once you have created the DD-Guard app for your gateway, you can share it with family members and friends to display the data forwarded by your gateway. 
-
-### The Gateway Software
-
-The gateway software is a Python program which interfaces with the Contour Next Link 2.4 to receive periodically the updated pump and sensor data. When the data is received successfully it uploads it to the cloud service.
-
-#### Installation
-
-You need Python support which is installed by default on the RaspberryPi OS "Raspbian". Additionally some non standard libraries need to added.
-
-##### Install needed Python libraries:
-
-    sudo pip install blynklib
-    sudo pip install astm
-    sudo pip install crc16
-    sudo apt install python-hid python-hidapi
-    sudo apt install python-pycryptodome
-    sudo apt install python-lzo
-    sudo apt install python-dateutil
-
-##### Install source code:
-
-TODO
-
-
-
-#### Start daemon
-
-    python ddguard.py
-
-
-
-### The Cloud service
-
-The cloud service currently used is the publicly available [Blynk server](https://github.com/blynkkk/blynk-server) which is already up and running. No setup or configuration is needed.
-
-However if full control over the server is needed it can also be installed on any private host.
-
-
-
-## Credits
-
-This project is based on other peoples work which I want to thank for their efforts.
-
-- [Lennart Goedhart](https://github.com/pazaan) who implemented the excellent [Python driver](https://github.com/pazaan/decoding-contour-next-link) for the "Contour Next Link 2.4" radio bridge to the Minimed 670G
-
-
-
 ## Disclaimer
 
 This project is not associated to or endorsed by [Medtronic](https://www.medtronicdiabetes.com). If you decide to use DD-Guard then you do this entirely at your own risk. I am not reliable for any damage it might cause. 
