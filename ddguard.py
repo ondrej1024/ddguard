@@ -5,8 +5,8 @@
 #  
 #  Description:
 #
-#    The DD-Guard gateway software periodically receives real time data from 
-#    the Minimed 670G pump and uploads it to the cloud service
+#    The DD-Guard gateway module periodically receives real time data from the 
+#    Medtronic Minimed 670G insulin pump and uploads it to the cloud service
 #  
 #  Dependencies:
 #
@@ -28,9 +28,9 @@
 #    13/10/2019 - Add handling of parameters from configuration file
 #    24/10/2019 - Add handling of BGL status codes
 #    24/10/2019 - Add handling of display colors according to limits
+#    02/11/2019 - Run timer function as asynchronous thread
 # 
 #  TODO:
-#    - Run timer function as asynchronous thread
 #    - Add some notification mechanism for alarms e.g. Telegram message
 #
 #  Copyright 2019, Ondrej Wisniewski 
@@ -54,15 +54,16 @@
 
 import blynklib
 import blynktimer
-import time
 import signal
 import syslog
 import sys
+import time
+import thread
 import ConfigParser
 import read_minimed_next24
 
 
-VERSION = "0.2"
+VERSION = "0.3"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -81,6 +82,7 @@ BLYNK_YELLOW = "#ED9D00"
 BLYNK_RED    = "#D3435C"
 
 # Special BGL values
+# TODO: add missing codes
 BGL_VALUE_TOOLOW    = 777
 BGL_VALUE_CHANGE    = 773
 BGL_VALUE_UPDATING  = 771
@@ -156,6 +158,91 @@ def on_sigterm(signum, frame):
    sys.exit()
 
 
+#########################################################
+#
+# Function:    send_pump_data()
+# Description: Read data from pump and send it to cloud
+#              This runs once at startup and then as a 
+#              periodic timer every 5min
+# 
+#########################################################
+def send_pump_data():
+   
+    # Guard against multiple threads
+    if send_pump_data.active:
+       return
+    
+    send_pump_data.active = True
+    
+    print "read data from pump"
+    hasFailed = True
+    numRetries = MAX_RETRIES_AT_FAILURE
+    while hasFailed and numRetries > 0:
+       try:
+          pumpData = read_minimed_next24.readPumpData()
+          hasFailed = False
+       except:
+          print "unexpected ERROR occured"
+          syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured")
+          pumpData = None
+          numRetries -= 1
+          if numRetries > 0:
+             time.sleep(5)
+    
+    if pumpData != None:
+       print "send data to cloud backend"
+       
+       # Send sensor data
+       if pumpData["bgl"] in bgl_status_codes:
+          # Special status code
+          blynk.virtual_write(VPIN_SENSOR, None)
+          blynk.virtual_write(VPIN_ARROWS, "--")
+          blynk.virtual_write(VPIN_STATUS, bgl_status_codes[pumpData["bgl"]])
+          blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
+       else:
+          # Regular BGL data
+          blynk.virtual_write(VPIN_SENSOR, pumpData["bgl"])
+          if pumpData["bgl"] < read_config.bgl_low_val:
+             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
+          elif pumpData["bgl"] < read_config.bgl_pre_low_val:
+             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
+          elif pumpData["bgl"] < read_config.bgl_pre_high_val:
+             blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
+          elif pumpData["bgl"] < read_config.bgl_high_val:
+             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
+          else:
+             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
+          blynk.virtual_write(VPIN_ARROWS, pumpData["trend"])
+          blynk.virtual_write(VPIN_STATUS, "Last update "+str(pumpData["time"]).split(' ')[1].split('.')[0])
+          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
+       
+       # Send pump data
+       blynk.virtual_write(VPIN_BATTERY, pumpData["batt"])
+       if pumpData["batt"] <= 25:
+          blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
+       elif pumpData["batt"] <= 50:
+          blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
+       else:
+          blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
+       blynk.virtual_write(VPIN_UNITS,   pumpData["unit"])
+       if pumpData["unit"] <= 25:
+          blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
+       elif pumpData["unit"] <= 75:
+          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
+       else:
+          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
+    else:
+       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
+       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
+       
+    print    
+    send_pump_data.active = False
+
+
+##########################################################           
+# Setup
+##########################################################           
+
 # read configuration parameters
 if read_config(CONFIG_FILE) == False:
    sys.exit()
@@ -181,89 +268,11 @@ def disconnect_handler():
       syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
 
 
-#########################################################
-#
-# Function:    send_pump_data()
-# Description: Read data from pump and send it to cloud
-#              This runs once at startup and then as a 
-#              periodic timer every 5min
-# 
-#########################################################
 @timer.register(interval=5, run_once=True)
 @timer.register(interval=UPDATE_INTERVAL, run_once=False)
-# TODO: Run this as separate thread so we don't cause ping timeouts
-def send_pump_data():
-   
-    print "read data from pump"
-    hasFailed = True
-    numRetries = MAX_RETRIES_AT_FAILURE
-    while hasFailed and numRetries > 0:
-       try:
-          pumpData = read_minimed_next24.readPumpData()
-          hasFailed = False
-       except:
-          print "unexpected ERROR occured"
-          syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured")
-          pumpData = None
-          numRetries -= 1
-          if numRetries > 0:
-             time.sleep(5)
-    
-    if pumpData != None:
-       print "send data to cloud backend"
-       
-       # Set sensor data
-       if pumpData["bgl"] in bgl_status_codes:
-          # Special status code
-          blynk.virtual_write(VPIN_SENSOR, None)
-          blynk.virtual_write(VPIN_ARROWS, "--")
-          blynk.virtual_write(VPIN_STATUS, bgl_status_codes[pumpData["bgl"]])
-          blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
-       else:
-          # Regular BGL data
-          blynk.virtual_write(VPIN_SENSOR, pumpData["bgl"])
-          if pumpData["bgl"] < read_config.bgl_low_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
-          elif pumpData["bgl"] < read_config.bgl_pre_low_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-          elif pumpData["bgl"] < read_config.bgl_pre_high_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
-          elif pumpData["bgl"] < read_config.bgl_high_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-          else:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
-          blynk.virtual_write(VPIN_ARROWS, pumpData["trend"])
-          blynk.virtual_write(VPIN_STATUS, str(pumpData["time"]).split(' ')[1].split('.')[0])
-          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
-       
-       # Set pump data
-       blynk.virtual_write(VPIN_BATTERY, pumpData["batt"])
-       if pumpData["batt"] <= 25:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
-       elif pumpData["batt"] <= 50:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
-       else:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
-       blynk.virtual_write(VPIN_UNITS,   pumpData["unit"])
-       if pumpData["unit"] <= 25:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
-       elif pumpData["unit"] <= 75:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
-       else:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
-    else:
-       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
-       # Clear sensor data
-       #blynk.virtual_write(VPIN_SENSOR, None)
-       blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
-       #blynk.virtual_write(VPIN_ARROWS, 0)
-       # TODO: set time of last received data
-       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
-       # Clear pump data
-       #blynk.virtual_write(VPIN_BATTERY, 0)
-       #blynk.virtual_write(VPIN_UNITS, 0)
-       
-    print
+def timer_function():
+    # Run this as separate thread so we don't cause ping timeouts
+    thread.start_new_thread(send_pump_data,())
 
 
 ##########################################################           
@@ -275,6 +284,7 @@ syslog.syslog(syslog.LOG_NOTICE, "Starting DD-Guard daemon, version "+VERSION)
 signal.signal(signal.SIGINT, on_sigterm)
 signal.signal(signal.SIGTERM, on_sigterm)
 
+send_pump_data.active = False
 
 ##########################################################           
 # Main loop
