@@ -10,6 +10,10 @@ First public release
 - Add handling of BGL status codes
 - Add handling of display colors according to limits
 
+### 0.3 [03/11/2019]
 
+- Run timer function as asynchronous thread to avoid cloud disconnection
 
- 
+- Add install script
+
+  
