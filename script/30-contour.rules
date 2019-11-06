@@ -1,0 +1,2 @@
+SUBSYSTEM=="usb", ENV{PRODUCT}=="1a79/6210/100", ACTION=="add", RUN+="/usr/local/bin/contour-hotplug.sh"
+SUBSYSTEM=="usb", ENV{PRODUCT}=="1a79/6210/100", ACTION=="remove", RUN+="/usr/local/bin/contour-hotplug.sh"
