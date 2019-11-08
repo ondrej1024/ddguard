@@ -29,9 +29,12 @@
 #    24/10/2019 - Add handling of BGL status codes
 #    24/10/2019 - Add handling of display colors according to limits
 #    02/11/2019 - Run timer function as asynchronous thread
-# 
+#    07/11/2019 - Add missing sensor exception codes
+#
 #  TODO:
-#    - Add some notification mechanism for alarms e.g. Telegram message
+#    - Add some notification mechanism for alarms e.g. Telegram or Pushover message
+#    - Upload data to NightScout
+#    - Upload data to Tidepool
 #
 #  Copyright 2019, Ondrej Wisniewski 
 #  
@@ -63,7 +66,7 @@ import ConfigParser
 import read_minimed_next24
 
 
-VERSION = "0.3"
+VERSION = "0.3.1"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -81,26 +84,49 @@ BLYNK_BLUE   = "#04C0F8"
 BLYNK_YELLOW = "#ED9D00"
 BLYNK_RED    = "#D3435C"
 
-# Special BGL values
-# TODO: add missing codes
-BGL_VALUE_TOOLOW    = 777
-BGL_VALUE_CHANGE    = 773
-BGL_VALUE_UPDATING  = 771
-BGL_VALUE_CALIBRATE = 770
-BGL_VALUE_WAITING   = 769
+# Sensor exception codes
+SENSOR_OK                   = 0x0300                     
+SENSOR_OK_STR               = "Sensor OK"
+SENSOR_INIT                 = 0x0301 
+SENSOR_INIT_STR             = "Sensor warming up"
+SENSOR_CAL_NEEDED           = 0x0302 
+SENSOR_CAL_NEEDED_STR       = "Calibrate sensor now "
+SENSOR_ERROR                = 0x0303
+SENSOR_ERROR_STR            = "Updating sensor"
+SENSOR_CAL_ERROR            = 0x0304
+SENSOR_CAL_ERROR_STR        = "Calibration error"
+SENSOR_CHANGE_SENSOR        = 0x0305
+SENSOR_CHANGE_SENSOR_STR    = "Change sensor"
+SENSOR_END_OF_LIFE          = 0x0306 
+SENSOR_END_OF_LIFE_STR      = "Sensor expired"
+SENSOR_NOT_READY            = 0x0307
+SENSOR_NOT_READY_STR        = "Sensor not ready"
+SENSOR_READING_HIGH         = 0x0308
+SENSOR_READING_HIGH_STR     = "Sensor reading too high"  
+SENSOR_READING_LOW          = 0x0309
+SENSOR_READING_LOW_STR      = "Sensor reading too low"
+SENSOR_CAL_PENDING          = 0x030A
+SENSOR_CAL_PENDING_STR      = "Calibrating sensor"
+SENSOR_CHANGE_CAL_ERROR     = 0x030B
+SENSOR_CHANGE_CAL_ERROR_STR = "Cal error - Change sensor"
+SENSOR_TIME_UNKNOWN         = 0x030C
+SENSOR_TIME_UNKNOWN_STR     = "Time unknown"
 
-BGL_MSG_TOOLOW    = "Sensor value low"
-BGL_MSG_CHANGE    = "Change sensor"
-BGL_MSG_UPDATING  = "Updating sensor"
-BGL_MSG_CALIBRATE = "Calibrate sensor"
-BGL_MSG_WAITING   = "Waiting for sensor"
-
-bgl_status_codes  = {BGL_VALUE_TOOLOW:   BGL_MSG_TOOLOW,
-                     BGL_VALUE_CHANGE:   BGL_MSG_CHANGE,
-                     BGL_VALUE_UPDATING: BGL_MSG_UPDATING,
-                     BGL_VALUE_CALIBRATE:BGL_MSG_CALIBRATE,
-                     BGL_VALUE_WAITING:  BGL_MSG_WAITING
-                    }
+sensor_exception_codes = {   
+    SENSOR_OK:               SENSOR_OK_STR,
+    SENSOR_INIT:             SENSOR_INIT_STR,
+    SENSOR_CAL_NEEDED:       SENSOR_CAL_NEEDED_STR,
+    SENSOR_ERROR:            SENSOR_ERROR_STR,
+    SENSOR_CAL_ERROR:        SENSOR_CAL_ERROR_STR,
+    SENSOR_CHANGE_SENSOR:    SENSOR_CHANGE_SENSOR_STR,
+    SENSOR_END_OF_LIFE:      SENSOR_END_OF_LIFE_STR,
+    SENSOR_NOT_READY:        SENSOR_NOT_READY_STR,
+    SENSOR_READING_HIGH:     SENSOR_READING_HIGH_STR,
+    SENSOR_READING_LOW:      SENSOR_READING_LOW_STR,
+    SENSOR_CAL_PENDING:      SENSOR_CAL_PENDING_STR,
+    SENSOR_CHANGE_CAL_ERROR: SENSOR_CHANGE_CAL_ERROR_STR,
+    SENSOR_TIME_UNKNOWN:     SENSOR_TIME_UNKNOWN_STR
+}
 
 is_connected = False
 
@@ -193,11 +219,11 @@ def send_pump_data():
        print "send data to cloud backend"
        
        # Send sensor data
-       if pumpData["bgl"] in bgl_status_codes:
+       if pumpData["bgl"] in sensor_exception_codes:
           # Special status code
           blynk.virtual_write(VPIN_SENSOR, None)
           blynk.virtual_write(VPIN_ARROWS, "--")
-          blynk.virtual_write(VPIN_STATUS, bgl_status_codes[pumpData["bgl"]])
+          blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[pumpData["bgl"]])
           blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
        else:
           # Regular BGL data
