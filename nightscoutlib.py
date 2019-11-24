@@ -1,11 +1,11 @@
 ###############################################################################
 #  
-#  Diabetes Data Guard (DD-Guard): Nightscout uploader
+#  Diabetes Data Guard (DD-Guard): Nightscout uploader library
 #  
 #  Description:
 #
-#    This module implements the uploader of the sensor and pump data to  
-#    the Nightscout REST API
+#    This library implements the uploader of the live sensor and pump  
+#    data to the Nightscout REST API
 #  
 #  Author:
 #
@@ -37,18 +37,19 @@
 import time
 import json
 import syslog
+import hashlib
 import requests
 
 
 class nightscout_uploader(object):
    
-   def __init__(self, url, secret):
-      self.ns_url     = url
-      self.api_secret = secret
+   def __init__(self, server, secret):
+      self.ns_url     = "http://"+server.strip()
+      self.api_secret = hashlib.sha1(secret.strip()).hexdigest()
       self.api_base   = "/api/v1/"
       self.device     = "medtronic-600://1234567890"
       self.headers    = {
-                           "user-agent":"dd-guard/0.3",
+                           "user-agent":"dd-guard",
                            "Content-Type":"application/json",
                            "api-secret": self.api_secret
                         }
@@ -91,10 +92,11 @@ class nightscout_uploader(object):
             "direction":self.direction_str(trend)      
          }
       #print "url: " + url
+      #print "headers: "+json.dumps(self.headers)
       #print "payload: "+json.dumps(payload)
-   
+      
       try:
-         print "Send API request"
+         #print "Send API request"
          r = requests.post(url, headers = self.headers, data = json.dumps(payload))
          #print "API response: "+r.text
          if r.status_code != requests.codes.ok:
@@ -139,9 +141,9 @@ class nightscout_uploader(object):
       #print "payload: "+json.dumps(payload)
   
       try:
-         print "Send API request"
+         #print "Send API request"
          r = requests.post(url, headers = self.headers, data = json.dumps(payload))
-         print "API response: "+r.text
+         #print "API response: "+r.text
          if r.status_code != requests.codes.ok:
             syslog.syslog(syslog.LOG_ERR, "Uploading entries record returned error "+str(r.status_code))
             rc = False
@@ -164,25 +166,14 @@ class nightscout_uploader(object):
    #########################################################
    def upload(self, data):
    
-      # Upload sensor data
-      rc = self.upload_entries(data["bgl"], data["trend"], data["time"])
+      rc = True
+      if data != None:
+         print "Uploading data to Nightscout"
+         
+         # Upload sensor data
+         rc = self.upload_entries(data["bgl"], data["trend"], data["time"])
    
-      # Upload pump data
-      rc &= self.upload_devicestatus(data["batt"], data["unit"], data["actins"])
+         # Upload pump data
+         rc &= self.upload_devicestatus(data["batt"], data["unit"], data["actins"])
 
       return rc   
-
-
-# TEST
-
-#d = {"actins":5.2, 
-     #"bgl":202,
-     #"time":"111",
-     #"trend":0,
-     #"unit":160,
-     #"batt":75
-    #}
-
-
-#nsu = nightscout_uploader(url = "http://192.168.1.23:8080", secret = "cc8a9a7c3670b6d3966fff040238f01a99da6b38")
-#nsu.upload(d)

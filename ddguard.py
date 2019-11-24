@@ -30,10 +30,10 @@
 #    24/10/2019 - Add handling of display colors according to limits
 #    02/11/2019 - Run timer function as asynchronous thread
 #    07/11/2019 - Add missing sensor exception codes
+#    24/11/2019 - Integrate Nightscout uploader
 #
 #  TODO:
 #    - Add some notification mechanism for alarms e.g. Telegram or Pushover message
-#    - Upload data to NightScout
 #    - Upload data to Tidepool
 #
 #  Copyright 2019, Ondrej Wisniewski 
@@ -64,9 +64,10 @@ import time
 import thread
 import ConfigParser
 import read_minimed_next24
+import nightscoutlib
 
 
-VERSION = "0.3.1"
+VERSION = "0.4"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -147,10 +148,19 @@ def read_config(cfilename):
 
    try:
       # Read Blynk parameters
+      read_config.blynk_server    = config.get('blynk', 'server').strip('"').strip("'").split("#")[0]
       read_config.blynk_token     = config.get('blynk', 'token').strip('"').strip("'").split("#")[0]
       read_config.blynk_heartbeat = int(config.get('blynk', 'heartbeat').strip('"').strip("'").split("#")[0])
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed blynk option not found in config file")
+      return False
+
+   try:
+      # Read Nightscout parameters
+      read_config.nightscout_server     = config.get('nightscout', 'server').strip('"').strip("'").split("#")[0]
+      read_config.nightscout_api_secret = config.get('nightscout', 'api_secret').strip('"').strip("'").split("#")[0]
+   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+      syslog.syslog(syslog.LOG_ERR, "ERROR - Needed nightscout option not found in config file")
       return False
 
    try:
@@ -163,11 +173,18 @@ def read_config(cfilename):
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed bgl option not found in config file")
       return False
 
-   print ("Blynk token:  %s" % read_config.blynk_token)
+   print ("Blynk server:    %s" % read_config.blynk_server)
+   print ("Blynk token:     %s" % read_config.blynk_token)
+   print ("Blynk heartbeat: %d" % read_config.blynk_heartbeat)
+   print
+   print ("Nightscout server:     %s" % read_config.nightscout_server)
+   print ("Nightscout api_secret: %s" % read_config.nightscout_api_secret)
+   print
    print ("BGL low:      %d" % read_config.bgl_low_val)
    print ("BGL pre low:  %d" % read_config.bgl_pre_low_val)
    print ("BGL pre high: %d" % read_config.bgl_pre_high_val)
    print ("BGL high:     %d" % read_config.bgl_high_val)
+   print
    return True
 
     
@@ -186,6 +203,61 @@ def on_sigterm(signum, frame):
 
 #########################################################
 #
+# Function:    on_sigterm()
+# Description: signal handler for the TERM and INT signal
+# 
+#########################################################
+def blynk_upload(data):
+
+   if data != None:
+      print "send data to cloud backend"
+       
+      # Send sensor data
+      if data["bgl"] in sensor_exception_codes:
+         # Special status code
+         blynk.virtual_write(VPIN_SENSOR, None)
+         blynk.virtual_write(VPIN_ARROWS, "--")
+         blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[data["bgl"]])
+         blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
+      else:
+         # Regular BGL data
+         blynk.virtual_write(VPIN_SENSOR, data["bgl"])
+         if data["bgl"] < read_config.bgl_low_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
+         elif data["bgl"] < read_config.bgl_pre_low_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
+         elif data["bgl"] < read_config.bgl_pre_high_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
+         elif data["bgl"] < read_config.bgl_high_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
+         else:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
+         blynk.virtual_write(VPIN_ARROWS, str(data["trend"])+" / "+str(data["actins"]))
+         blynk.virtual_write(VPIN_STATUS, "Last update "+str(data["time"]).split(' ')[1].split('.')[0])
+         blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
+       
+      # Send pump data
+      blynk.virtual_write(VPIN_BATTERY, data["batt"])
+      if data["batt"] <= 25:
+         blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
+      elif data["batt"] <= 50:
+         blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
+      else:
+         blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
+      blynk.virtual_write(VPIN_UNITS,   data["unit"])
+      if data["unit"] <= 25:
+         blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
+      elif data["unit"] <= 75:
+         blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
+      else:
+         blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
+   else:
+      syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
+      blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
+
+
+#########################################################
+#
 # Function:    send_pump_data()
 # Description: Read data from pump and send it to cloud
 #              This runs once at startup and then as a 
@@ -194,75 +266,44 @@ def on_sigterm(signum, frame):
 #########################################################
 def send_pump_data():
    
-    # Guard against multiple threads
-    if send_pump_data.active:
-       return
+   # Guard against multiple threads
+   if send_pump_data.active:
+      return
     
-    send_pump_data.active = True
+   send_pump_data.active = True
+   
+   print "read data from pump"
+   hasFailed = True
+   numRetries = MAX_RETRIES_AT_FAILURE
+   while hasFailed and numRetries > 0:
+      try:
+         pumpData = read_minimed_next24.readPumpData()
+         hasFailed = False
+      except:
+         print "unexpected ERROR occured"
+         syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured")
+         pumpData = None
+         numRetries -= 1
+         if numRetries > 0:
+            time.sleep(5)
     
-    print "read data from pump"
-    hasFailed = True
-    numRetries = MAX_RETRIES_AT_FAILURE
-    while hasFailed and numRetries > 0:
-       try:
-          pumpData = read_minimed_next24.readPumpData()
-          hasFailed = False
-       except:
-          print "unexpected ERROR occured"
-          syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured")
-          pumpData = None
-          numRetries -= 1
-          if numRetries > 0:
-             time.sleep(5)
+   # Upload data to Blynk server
+   blynk_upload(pumpData)
+
+   # TEST
+   #pumpData = {"actins":1.5, 
+               #"bgl":82,
+               #"time":"111",
+               #"trend":0,
+               #"unit":63,
+               #"batt":75
+              #}
+
+   # Upload data to Nighscout server
+   if nightscout != None:
+      nightscout.upload(pumpData)
     
-    if pumpData != None:
-       print "send data to cloud backend"
-       
-       # Send sensor data
-       if pumpData["bgl"] in sensor_exception_codes:
-          # Special status code
-          blynk.virtual_write(VPIN_SENSOR, None)
-          blynk.virtual_write(VPIN_ARROWS, "--")
-          blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[pumpData["bgl"]])
-          blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
-       else:
-          # Regular BGL data
-          blynk.virtual_write(VPIN_SENSOR, pumpData["bgl"])
-          if pumpData["bgl"] < read_config.bgl_low_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
-          elif pumpData["bgl"] < read_config.bgl_pre_low_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-          elif pumpData["bgl"] < read_config.bgl_pre_high_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
-          elif pumpData["bgl"] < read_config.bgl_high_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-          else:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
-          blynk.virtual_write(VPIN_ARROWS, pumpData["trend"])
-          blynk.virtual_write(VPIN_STATUS, "Last update "+str(pumpData["time"]).split(' ')[1].split('.')[0])
-          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
-       
-       # Send pump data
-       blynk.virtual_write(VPIN_BATTERY, pumpData["batt"])
-       if pumpData["batt"] <= 25:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
-       elif pumpData["batt"] <= 50:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
-       else:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
-       blynk.virtual_write(VPIN_UNITS,   pumpData["unit"])
-       if pumpData["unit"] <= 25:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
-       elif pumpData["unit"] <= 75:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
-       else:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
-    else:
-       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
-       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
-       
-    print    
-    send_pump_data.active = False
+   send_pump_data.active = False
 
 
 ##########################################################           
@@ -274,7 +315,9 @@ if read_config(CONFIG_FILE) == False:
    sys.exit()
 
 # Init Blynk instance
-blynk = blynklib.Blynk(read_config.blynk_token, heartbeat=read_config.blynk_heartbeat)
+blynk = blynklib.Blynk(read_config.blynk_token,
+                       server=read_config.blynk_server.strip(),
+                       heartbeat=read_config.blynk_heartbeat)
 timer = blynktimer.Timer()
 
 @blynk.handle_event("connect")
@@ -300,7 +343,15 @@ def timer_function():
     # Run this as separate thread so we don't cause ping timeouts
     thread.start_new_thread(send_pump_data,())
 
-
+# Init Nighscout instance (if requested)
+if read_config.nightscout_server != "" and read_config.nightscout_api_secret != "":
+   print "Nightscout upload is enabled"
+   nightscout = nightscoutlib.nightscout_uploader(server = read_config.nightscout_server, 
+                                                  secret = read_config.nightscout_api_secret)
+else:
+   nightscout = None
+   
+   
 ##########################################################           
 # Initialization
 ##########################################################           
