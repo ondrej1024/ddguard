@@ -4,8 +4,8 @@
 #  
 #  Description:
 #
-#    This module implements the uploader of the sensor and punp sata to the 
-#    Nightscout REST API
+#    This module implements the uploader of the sensor and pump data to  
+#    the Nightscout REST API
 #  
 #  Author:
 #
@@ -36,139 +36,153 @@
 ###############################################################################
 import time
 import json
+import syslog
 import requests
 
 
-ns_url     = "http://10.5.0.5:8080"
-api_base   = "/api/v1/"
-api_secret = "cc8a9a7c3670b6d3966fff040238f01a99da6b38"
-device     = "medtronic-600://1234567890"
-
-headers = {
-      "user-agent":"dd-guard/0.3",
-      "Content-Type":"application/json",
-      "api-secret": api_secret
-}
-
-
-#########################################################
-#
-# Function:    upload_entries()
-# Description: Upload sensor data via the entries/ 
-#              API endpoint
-# 
-#########################################################
-def upload_entries(sgv, trend, date_str):
-
-   rc = True
-
-   if trend   == -3:
-      direction = "TripleDown"
-   elif trend == -2:
-      direction = "DoubleDown"
-   elif trend == -1:
-      direction = "SingleDown"
-   elif trend == 0:
-      direction = "Flat"
-   elif trend == 1:
-      direction = "SingleUp"
-   elif trend == 2:
-      direction = "DoubleUp"
-   elif trend == 3:
-      direction = "TripleUp"
-   else:
-      direction = "Out of range"
-
-   payload = {
-      "device":device,
-      "type":"sgv",
-      "date":int(time.time()*1000),
-      "sgv":sgv,
-      "direction":direction      
-      }
+class nightscout_uploader(object):
    
-   try:
-      r = requests.post(ns_url+api_base+"entries.json", headers = headers, data = json.dumps(payload))
-      #syslog.syslog(syslog.LOG_NOTICE, r.url)
-      print "API response: "+r.text
-      if r.status_code != requests.codes.ok:
-         syslog.syslog(syslog.LOG_ERR, "Uploading entries record returned error "+str(r.status_code))
-         rc = False
-   except:
-      syslog.syslog(syslog.LOG_ERR, "Uploading entries record failed with exception")
-      rc = False
-   
-   return rc
+   def __init__(self, url, secret):
+      self.ns_url     = url
+      self.api_secret = secret
+      self.api_base   = "/api/v1/"
+      self.device     = "medtronic-600://1234567890"
+      self.headers    = {
+                           "user-agent":"dd-guard/0.3",
+                           "Content-Type":"application/json",
+                           "api-secret": self.api_secret
+                        }
+      
+   def direction_str(self, trend):
+      if trend   == -3:
+         return "TripleDown"
+      elif trend == -2:
+         return "DoubleDown"
+      elif trend == -1:
+         return "SingleDown"
+      elif trend == 0:
+         return "Flat"
+      elif trend == 1:
+         return "SingleUp"
+      elif trend == 2:
+         return "DoubleUp"
+      elif trend == 3:
+         return "TripleUp"
+      else:
+         return "Out of range"
+      
 
+   #########################################################
+   #
+   # Function:    upload_entries()
+   # Description: Upload sensor data via the entries/ 
+   #              API endpoint
+   # 
+   #########################################################
+   def upload_entries(self, sgv, trend, date_str):
 
-#########################################################
-#
-# Function:    upload_devicestatus()
-# Description: Upload pump data via the devicestatus/ 
-#              API endpoint
-# 
-#########################################################
-def upload_devicestatus(battery, reservoir, iob):
-   
-   rc = True
-   
-   payload = {
-      "device":device,
-      #"created_at": int(time.time()*1000),
-      #"uploaderBattery": 100,
-      "pump": {
-         "clock":int(time.time()*1000),
-         "reservoir": reservoir,
-         "battery": {
-            "percent": battery
+      rc = True
+      url = self.ns_url + self.api_base + "entries.json"
+      payload = {
+            "device":self.device,
+            "type":"sgv",
+            "date":int(time.time()*1000), # TODO: send pump time
+            "sgv":sgv,
+            "direction":self.direction_str(trend)      
          }
-      }
-   }
-  
-   try:
-      r = requests.post(ns_url+api_base+"devicestatus.json", headers = headers, data = json.dumps(payload))
-      #syslog.syslog(syslog.LOG_NOTICE, r.url)
-      print "API response: "+r.text
-      if r.status_code != requests.codes.ok:
-         syslog.syslog(syslog.LOG_ERR, "Uploading entries record returned error "+str(r.status_code))
+      #print "url: " + url
+      #print "payload: "+json.dumps(payload)
+   
+      try:
+         print "Send API request"
+         r = requests.post(url, headers = self.headers, data = json.dumps(payload))
+         #print "API response: "+r.text
+         if r.status_code != requests.codes.ok:
+            syslog.syslog(syslog.LOG_ERR, "Uploading entries record returned error "+str(r.status_code))
+            rc = False
+      except:
+         print "Uploading entries record failed with exception"
+         syslog.syslog(syslog.LOG_ERR, "Uploading entries record failed with exception")
          rc = False
-   except:
-      syslog.syslog(syslog.LOG_ERR, "Uploading entries record failed with exception")
-      rc = False
    
-   # TODO: delete old entries
+      return rc
+
+
+   #########################################################
+   #
+   # Function:    upload_devicestatus()
+   # Description: Upload pump data via the devicestatus/ 
+   #              API endpoint
+   # 
+   #########################################################
+   def upload_devicestatus(self, battery, reservoir, iob):
    
-   return rc
+      rc = True
+      url = self.ns_url + self.api_base + "devicestatus.json"
+      payload = {
+            "device":self.device,
+            #"created_at": int(time.time()*1000),
+            #"uploaderBattery": 100,
+            "pump": {
+               "clock":int(time.time()*1000), # TODO: send pump time
+               "reservoir":reservoir,
+               "battery": {
+                  "percent":battery
+               },
+               "iob": {
+                  "timestamp":int(time.time()*1000), # TODO: send pump time
+                  "bolusiob":iob
+               }
+            }
+         }
+      #print "url: " + url
+      #print "payload: "+json.dumps(payload)
+  
+      try:
+         print "Send API request"
+         r = requests.post(url, headers = self.headers, data = json.dumps(payload))
+         print "API response: "+r.text
+         if r.status_code != requests.codes.ok:
+            syslog.syslog(syslog.LOG_ERR, "Uploading entries record returned error "+str(r.status_code))
+            rc = False
+      except:
+         print "Uploading entries record failed with exception"
+         syslog.syslog(syslog.LOG_ERR, "Uploading entries record failed with exception")
+         rc = False
+   
+      # TODO: delete old entries
+   
+      return rc
    
 
-#########################################################
-#
-# Function:    nightscout_uploader()
-# Description: Upload sensor and pump data to the 
-#              Nightscout REST API
-# 
-#########################################################
-def nightscout_uploader(data):
+   #########################################################
+   #
+   # Function:    upload()
+   # Description: Upload sensor and pump data to the 
+   #              Nightscout REST API
+   # 
+   #########################################################
+   def upload(self, data):
    
-   # Upload sensor data
-   rc = upload_entries(data["bgl"], data["trend"], data["time"])
+      # Upload sensor data
+      rc = self.upload_entries(data["bgl"], data["trend"], data["time"])
    
-   # Upload pump data
-   rc &= upload_devicestatus(data["batt"], data["unit"], data["actins"])
+      # Upload pump data
+      rc &= self.upload_devicestatus(data["batt"], data["unit"], data["actins"])
 
-   return rc   
+      return rc   
 
 
 # TEST
-#upload_entries(95, 2, "111")   
-#upload_devicestatus(80, 130, 11)
 
-d = {"actins":5.0, 
-     "bgl":111,
-     "time":"111",
-     "trend":-1,
-      "unit":55,
-      "batt":99
-     }
+#d = {"actins":5.2, 
+     #"bgl":202,
+     #"time":"111",
+     #"trend":0,
+     #"unit":160,
+     #"batt":75
+    #}
 
-nightscout_uploader(d)
+
+#nsu = nightscout_uploader(url = "http://192.168.1.23:8080", secret = "cc8a9a7c3670b6d3966fff040238f01a99da6b38")
+#nsu.upload(d)
