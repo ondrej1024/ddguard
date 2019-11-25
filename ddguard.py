@@ -65,7 +65,7 @@ import thread
 import ConfigParser
 import read_minimed_next24
 import nightscoutlib
-
+from sensor_codes import SENSOR_EXCEPTIONS
 
 VERSION = "0.4"
 
@@ -85,48 +85,21 @@ BLYNK_BLUE   = "#04C0F8"
 BLYNK_YELLOW = "#ED9D00"
 BLYNK_RED    = "#D3435C"
 
-# Sensor exception codes
-SENSOR_OK                   = 0x0300                     
-SENSOR_OK_STR               = "Sensor OK"
-SENSOR_INIT                 = 0x0301 
-SENSOR_INIT_STR             = "Sensor warming up"
-SENSOR_CAL_NEEDED           = 0x0302 
-SENSOR_CAL_NEEDED_STR       = "Calibrate sensor now "
-SENSOR_ERROR                = 0x0303
-SENSOR_ERROR_STR            = "Updating sensor"
-SENSOR_CAL_ERROR            = 0x0304
-SENSOR_CAL_ERROR_STR        = "Calibration error"
-SENSOR_CHANGE_SENSOR        = 0x0305
-SENSOR_CHANGE_SENSOR_STR    = "Change sensor"
-SENSOR_END_OF_LIFE          = 0x0306 
-SENSOR_END_OF_LIFE_STR      = "Sensor expired"
-SENSOR_NOT_READY            = 0x0307
-SENSOR_NOT_READY_STR        = "Sensor not ready"
-SENSOR_READING_HIGH         = 0x0308
-SENSOR_READING_HIGH_STR     = "Sensor reading too high"  
-SENSOR_READING_LOW          = 0x0309
-SENSOR_READING_LOW_STR      = "Sensor reading too low"
-SENSOR_CAL_PENDING          = 0x030A
-SENSOR_CAL_PENDING_STR      = "Calibrating sensor"
-SENSOR_CHANGE_CAL_ERROR     = 0x030B
-SENSOR_CHANGE_CAL_ERROR_STR = "Cal error - Change sensor"
-SENSOR_TIME_UNKNOWN         = 0x030C
-SENSOR_TIME_UNKNOWN_STR     = "Time unknown"
 
 sensor_exception_codes = {   
-    SENSOR_OK:               SENSOR_OK_STR,
-    SENSOR_INIT:             SENSOR_INIT_STR,
-    SENSOR_CAL_NEEDED:       SENSOR_CAL_NEEDED_STR,
-    SENSOR_ERROR:            SENSOR_ERROR_STR,
-    SENSOR_CAL_ERROR:        SENSOR_CAL_ERROR_STR,
-    SENSOR_CHANGE_SENSOR:    SENSOR_CHANGE_SENSOR_STR,
-    SENSOR_END_OF_LIFE:      SENSOR_END_OF_LIFE_STR,
-    SENSOR_NOT_READY:        SENSOR_NOT_READY_STR,
-    SENSOR_READING_HIGH:     SENSOR_READING_HIGH_STR,
-    SENSOR_READING_LOW:      SENSOR_READING_LOW_STR,
-    SENSOR_CAL_PENDING:      SENSOR_CAL_PENDING_STR,
-    SENSOR_CHANGE_CAL_ERROR: SENSOR_CHANGE_CAL_ERROR_STR,
-    SENSOR_TIME_UNKNOWN:     SENSOR_TIME_UNKNOWN_STR
+    SENSOR_EXCEPTIONS.SENSOR_OK:               SENSOR_EXCEPTIONS.SENSOR_OK_STR,
+    SENSOR_EXCEPTIONS.SENSOR_INIT:             SENSOR_EXCEPTIONS.SENSOR_INIT_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CAL_NEEDED:       SENSOR_EXCEPTIONS.SENSOR_CAL_NEEDED_STR,
+    SENSOR_EXCEPTIONS.SENSOR_ERROR:            SENSOR_EXCEPTIONS.SENSOR_ERROR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CAL_ERROR:        SENSOR_EXCEPTIONS.SENSOR_CAL_ERROR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CHANGE_SENSOR:    SENSOR_EXCEPTIONS.SENSOR_CHANGE_SENSOR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_END_OF_LIFE:      SENSOR_EXCEPTIONS.SENSOR_END_OF_LIFE_STR,
+    SENSOR_EXCEPTIONS.SENSOR_NOT_READY:        SENSOR_EXCEPTIONS.SENSOR_NOT_READY_STR,
+    SENSOR_EXCEPTIONS.SENSOR_READING_HIGH:     SENSOR_EXCEPTIONS.SENSOR_READING_HIGH_STR,
+    SENSOR_EXCEPTIONS.SENSOR_READING_LOW:      SENSOR_EXCEPTIONS.SENSOR_READING_LOW_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CAL_PENDING:      SENSOR_EXCEPTIONS.SENSOR_CAL_PENDING_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CHANGE_CAL_ERROR: SENSOR_EXCEPTIONS.SENSOR_CHANGE_CAL_ERROR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN:     SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN_STR
 }
 
 is_connected = False
@@ -203,8 +176,8 @@ def on_sigterm(signum, frame):
 
 #########################################################
 #
-# Function:    on_sigterm()
-# Description: signal handler for the TERM and INT signal
+# Function:    blynk_upload()
+# Description: Blynk uploader
 # 
 #########################################################
 def blynk_upload(data):
@@ -291,12 +264,12 @@ def send_pump_data():
    blynk_upload(pumpData)
 
    # TEST
-   #pumpData = {"actins":1.5, 
-               #"bgl":82,
+   #pumpData = {"actins":0.5, 
+               #"bgl":778,
                #"time":"111",
-               #"trend":0,
-               #"unit":63,
-               #"batt":75
+               #"trend":2,
+               #"unit":60,
+               #"batt":25
               #}
 
    # Upload data to Nighscout server

@@ -13,8 +13,8 @@
 #  
 #  Changelog:
 #
-#    19/09/2019 - Initial public release
-#
+#    19/11/2019 - Initial public release
+#    25/11/2019 - Add exception code handling
 #
 #  Copyright 2019, Ondrej Wisniewski 
 #  
@@ -39,8 +39,37 @@ import json
 import syslog
 import hashlib
 import requests
+from sensor_codes import SENSOR_EXCEPTIONS
 
 
+# Nightscout error codes
+class NS_ERROR:
+   SENSOR_NOT_ACTIVE     = 1  # "?SN"
+   MINIMAL_DEVIATION     = 2  # "?MD"
+   NO_ANTENNA            = 3  # "?NA"
+   SENSOR_NOT_CALIBRATED = 5  # "?NC"
+   COUNTS_DEVIATION      = 6  # "?CD"
+   ABSOLUTE_DEVIATION    = 9  # "?AD"
+   POWER_DEVIATION       = 10 # "???"
+   BAD_RF                = 12 # "?RF"
+
+# Nightscout trend codes
+class NS_TREND:
+   NONE                  = "NONE"
+   TRIPLE_UP             = "TripleUp"
+   DOUBLE_UP             = "DoubleUp"
+   SINGLE_UP             = "SingleUp"
+   FOURTY_FIVE_UP        = "FortyFiveUp"
+   FLAT                  = "Flat"
+   FOURTY_FIVE_DOWN      = "FortyFiveDown"
+   SINGLE_DOWN           = "SingleDown"
+   DOUBLE_DOWN           = "DoubleDown"
+   TRIPLE_DOWN           = "TripleDown"
+   NOT_COMPUTABLE        = "NOT COMPUTABLE"
+   RATE_OUT_OF_RANGE     = "RATE OUT OF RANGE"
+   NOT_SET               = "NONE"
+
+# Nightscout uploader class
 class nightscout_uploader(object):
    
    def __init__(self, server, secret):
@@ -54,25 +83,45 @@ class nightscout_uploader(object):
                            "api-secret": self.api_secret
                         }
       
+   # Trend mapping
    def direction_str(self, trend):
       if trend   == -3:
-         return "TripleDown"
+         return NS_TREND.TRIPLE_DOWN
       elif trend == -2:
-         return "DoubleDown"
+         return NS_TREND.DOUBLE_DOWN
       elif trend == -1:
-         return "SingleDown"
+         return NS_TREND.SINGLE_DOWN
       elif trend == 0:
-         return "Flat"
+         return NS_TREND.FLAT
       elif trend == 1:
-         return "SingleUp"
+         return NS_TREND.SINGLE_UP
       elif trend == 2:
-         return "DoubleUp"
+         return NS_TREND.DOUBLE_UP
       elif trend == 3:
-         return "TripleUp"
+         return NS_TREND.TRIPLE_UP
       else:
-         return "Out of range"
+         return NS_TREND.RATE_OUT_OF_RANGE
       
-
+   # Exception code mapping
+   def exception_code(self, sgv):
+      if sgv in [SENSOR_EXCEPTIONS.SENSOR_CAL_NEEDED]:
+         return NS_ERROR.SENSOR_NOT_CALIBRATED,NS_TREND.NOT_COMPUTABLE 
+      elif sgv in [SENSOR_EXCEPTIONS.SENSOR_CHANGE_CAL_ERROR, 
+                   SENSOR_EXCEPTIONS.SENSOR_CHANGE_SENSOR,
+                   SENSOR_EXCEPTIONS.SENSOR_END_OF_LIFE]:
+         return NS_ERROR.SENSOR_NOT_ACTIVE,NS_TREND.NOT_COMPUTABLE
+      elif sgv in [SENSOR_EXCEPTIONS.SENSOR_READING_LOW]:
+         return 40,NS_TREND.RATE_OUT_OF_RANGE
+      elif sgv in [SENSOR_EXCEPTIONS.SENSOR_READING_HIGH]:
+         return 400,NS_TREND.RATE_OUT_OF_RANGE
+      elif sgv in [SENSOR_EXCEPTIONS.SENSOR_CAL_PENDING, 
+                   SENSOR_EXCEPTIONS.SENSOR_INIT, 
+                   SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN, 
+                   SENSOR_EXCEPTIONS.SENSOR_NOT_READY, 
+                   SENSOR_EXCEPTIONS.SENSOR_ERROR]:
+         return NS_ERROR.NO_ANTENNA,NS_TREND.NOT_COMPUTABLE
+      
+      
    #########################################################
    #
    # Function:    upload_entries()
@@ -84,12 +133,19 @@ class nightscout_uploader(object):
 
       rc = True
       url = self.ns_url + self.api_base + "entries.json"
+      
+      # Check for exception codes
+      if sgv >= 0x0300:
+         sgv,trend_str = self.exception_code(sgv)
+      else:
+         trend_str = self.direction_str(trend)
+      
       payload = {
             "device":self.device,
             "type":"sgv",
             "date":int(time.time()*1000), # TODO: send pump time
             "sgv":sgv,
-            "direction":self.direction_str(trend)      
+            "direction":trend_str
          }
       #print "url: " + url
       #print "headers: "+json.dumps(self.headers)
