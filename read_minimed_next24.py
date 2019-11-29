@@ -1271,6 +1271,7 @@ def downloadPumpSession(downloadOperations):
 def pumpDownload(mt):
     status = mt.getPumpStatus()
     #print (binascii.hexlify( status.responsePayload ))
+    print ("Device serial: {0}".format(mt.deviceSerial))
     print ("Active Insulin: {0:.3f}U".format( status.activeInsulin ))
     print ("Sensor BGL: {0} mg/dL ({1:.1f} mmol/L) at {2}".format( status.sensorBGL,
              status.sensorBGL / 18.016,
@@ -1282,8 +1283,9 @@ def pumpDownload(mt):
     print ("Units remaining: {0:.3f}U".format( status.insulinUnitsRemaining ))
     print ("Battery remaining: {0}%".format( status.batteryLevelPercentage ))
     
-    result = {"actins":status.activeInsulin, 
-              "bgl":status.sensorBGL if status.sensorBGL>0 else None,
+    result = {"serial":mt.deviceSerial,
+              "actins":status.activeInsulin, 
+              "bgl":status.sensorBGL, # if status.sensorBGL>0 else None,
               "time":status.sensorBGLTimestamp,
               "trend":status.trendArrow,
               "unit":status.insulinUnitsRemaining,

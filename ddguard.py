@@ -183,7 +183,7 @@ def on_sigterm(signum, frame):
 def blynk_upload(data):
 
    if data != None:
-      print "send data to cloud backend"
+      print "Uploading data to Blynk"
        
       # Send sensor data
       if data["bgl"] in sensor_exception_codes:

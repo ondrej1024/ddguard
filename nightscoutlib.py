@@ -15,6 +15,7 @@
 #
 #    19/11/2019 - Initial public release
 #    25/11/2019 - Add exception code handling
+#    29/11/2019 - Upload of real device serial and pump date
 #
 #  Copyright 2019, Ondrej Wisniewski 
 #  
@@ -76,11 +77,11 @@ class nightscout_uploader(object):
       self.ns_url     = "http://"+server.strip()
       self.api_secret = hashlib.sha1(secret.strip()).hexdigest()
       self.api_base   = "/api/v1/"
-      self.device     = "medtronic-600://1234567890"
+      self.device     = "medtronic-600://"
       self.headers    = {
                            "user-agent":"dd-guard",
                            "Content-Type":"application/json",
-                           "api-secret": self.api_secret
+                           "api-secret":self.api_secret
                         }
       
    # Trend mapping
@@ -129,7 +130,7 @@ class nightscout_uploader(object):
    #              API endpoint
    # 
    #########################################################
-   def upload_entries(self, sgv, trend, date_str):
+   def upload_entries(self, serial, sgv, trend, date_str):
 
       rc = True
       url = self.ns_url + self.api_base + "entries.json"
@@ -141,9 +142,10 @@ class nightscout_uploader(object):
          trend_str = self.direction_str(trend)
       
       payload = {
-            "device":self.device,
+            "device":self.device+serial,
             "type":"sgv",
-            "date":int(time.time()*1000), # TODO: send pump time
+            "dateString":date_str.strftime("%c"),
+            "date":int(date_str.strftime("%s"))*1000,
             "sgv":sgv,
             "direction":trend_str
          }
@@ -159,7 +161,7 @@ class nightscout_uploader(object):
             syslog.syslog(syslog.LOG_ERR, "Uploading entries record returned error "+str(r.status_code))
             rc = False
       except:
-         print "Uploading entries record failed with exception"
+         #print "Uploading entries record failed with exception"
          syslog.syslog(syslog.LOG_ERR, "Uploading entries record failed with exception")
          rc = False
    
@@ -173,22 +175,22 @@ class nightscout_uploader(object):
    #              API endpoint
    # 
    #########################################################
-   def upload_devicestatus(self, battery, reservoir, iob):
+   def upload_devicestatus(self, serial, battery, reservoir, iob, date_str):
    
       rc = True
       url = self.ns_url + self.api_base + "devicestatus.json"
       payload = {
-            "device":self.device,
+            "device":self.device+serial,
             #"created_at": int(time.time()*1000),
             #"uploaderBattery": 100,
             "pump": {
-               "clock":int(time.time()*1000), # TODO: send pump time
+               "clock":int(date_str.strftime("%s"))*1000,
                "reservoir":reservoir,
                "battery": {
                   "percent":battery
                },
                "iob": {
-                  "timestamp":int(time.time()*1000), # TODO: send pump time
+                  "timestamp":int(date_str.strftime("%s"))*1000,
                   "bolusiob":iob
                }
             }
@@ -204,7 +206,7 @@ class nightscout_uploader(object):
             syslog.syslog(syslog.LOG_ERR, "Uploading entries record returned error "+str(r.status_code))
             rc = False
       except:
-         print "Uploading entries record failed with exception"
+         #print "Uploading entries record failed with exception"
          syslog.syslog(syslog.LOG_ERR, "Uploading entries record failed with exception")
          rc = False
    
@@ -227,9 +229,9 @@ class nightscout_uploader(object):
          print "Uploading data to Nightscout"
          
          # Upload sensor data
-         rc = self.upload_entries(data["bgl"], data["trend"], data["time"])
+         rc = self.upload_entries(data["serial"], data["bgl"], data["trend"], data["time"])
    
          # Upload pump data
-         rc &= self.upload_devicestatus(data["batt"], data["unit"], data["actins"])
+         rc &= self.upload_devicestatus(data["serial"], data["batt"], data["unit"], data["actins"], data["time"])
 
       return rc   
