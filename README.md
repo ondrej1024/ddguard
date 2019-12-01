@@ -14,11 +14,13 @@ DD-Guard was inspired by the [NightScout](http://www.nightscout.info) project an
 
 ## Project Status
 
-Currently I have implemented a working prototype of DD-Guard which I use in the real world to monitor my daughters blood glucose level and pump status at night when she is in her room where the gateway is located. On the app screen of my mobile phone I get updated data for blood glucose level (including history graph) and trend, remaining insulin units in the pumps tank and battery status. Basal rate and active insulin data could be added. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon.
+Currently I have implemented a working prototype of DD-Guard which I use in the real world to monitor my daughters blood glucose level and pump status at night when she is in her room where the gateway is located. On the app screen of my mobile phone I get updated data for blood glucose level (including history graph) and trend, active insulin, remaining insulin units in the pumps tank and battery status. Basal rate  could be added. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon.
 
 It would also be possible for my daughter to take the small gateway device with her when she is going to spend the night at a friends house, so I could still monitor her data. The gateway works as long as it has a power supply and a Wifi network connection.
 
 At the moment the gateway is not mobile, so cannot provide the data when it is on the move. This is something I am planning to do.
+
+A Nightscout uploader option was added lately to the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used phone uploader for this system.
 
 
 
@@ -101,16 +103,59 @@ You need Python support which is installed by default on the RaspberryPi OS "Ras
     sudo apt install python-pycryptodome
     sudo apt install python-lzo
     sudo apt install python-dateutil
+    sudo apt install python-requests
 
 ##### Install source code:
 
-TODO
+```
+git clone https://github.com/ondrej1024/ddguard.git
+cd ddguard
+sudo ./install.sh
+```
+
+
+
+#### Modify configuration
+
+Modify the configuration parameters in `/etc/ddguard.conf` to match your setup.
+
+```
+################################################
+#
+# ddguard configuration file
+#
+# This file is read by the ddguard daemon
+# from /etc/ddguard.conf
+#
+################################################
+
+# Blynk parameters
+################################################
+[blynk]
+server = blynk-cloud.com # Blynk server address
+token =                  # my personal Blynk token
+heartbeat = 20           # heartbeat period (s)
+    
+# Nightscout parameters
+################################################
+[nightscout]
+server =                 # Nightscout server address
+api_secret =             # my Nightscout API secret
+
+# BGL parameters
+################################################
+[bgl]
+bgl_low       =  80   # BGL low threshold (color data red when below)
+bgl_pre_low   = 100   # BGL pre low threshold (color data yellow when below)
+bgl_pre_high  = 160   # BGL pre high threshold (color data yellow when above)
+bgl_high      = 220   # BGL high threshold (color data red when above)
+```
 
 
 
 #### Start daemon
 
-    python ddguard.py
+    systemctl start ddguard
 
 
 
@@ -120,6 +165,8 @@ The cloud service currently used is the publicly available [Blynk server](https:
 
 However if full control over the server is needed it can also be installed on any private host.
 
+Alternatively, if you want to upload your data to a Nightscout server follow the installation instructions for the server provided by the Nightscout project.
+
 
 
 ## Credits
@@ -127,6 +174,7 @@ However if full control over the server is needed it can also be installed on an
 This project is based on other peoples work which I want to thank for their efforts.
 
 - [Lennart Goedhart](https://github.com/pazaan) who implemented the excellent [Python driver](https://github.com/pazaan/decoding-contour-next-link) for the "Contour Next Link 2.4" radio bridge to the Minimed 670G
+- [Pogman](https://github.com/Pogman) for putting up with my questions and providing me with the pointers to the details of the Nightscout uploader implementation.
 
 
 
