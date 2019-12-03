@@ -1,4 +1,16 @@
-#!/usr/bin/env python
+###############################################################################
+#  
+#  Contour Next Link 2.4 driver library
+#  
+#  Description:
+#
+#    This is the driver library for the Contour Next Link 2.4 USB radio bridge 
+#    to read the data from the Medtronic Minimed 670G insulin pump 
+#
+#    It is an adaptation of the original driver code from Lennart Goedhart:
+#    https://github.com/pazaan/decoding-contour-next-link
+#  
+###############################################################################
 
 import logging
 # logging.basicConfig has to be before astm import, otherwise logs don't appear
