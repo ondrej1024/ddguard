@@ -26,4 +26,5 @@ class SENSOR_EXCEPTIONS:
    SENSOR_CHANGE_CAL_ERROR_STR = "Cal error - Change sensor"
    SENSOR_TIME_UNKNOWN         = 0x030C
    SENSOR_TIME_UNKNOWN_STR     = "Time unknown"
-   
+   SENSOR_WAITING              = 0
+   SENSOR_WAITING_STR          = "Waiting for sensor"

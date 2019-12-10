@@ -385,7 +385,6 @@ class MedtronicReceiveMessage( MedtronicMessage ):
     def messageType( self ):
         return struct.unpack( '>H', self.responsePayload[1:3] )[0]
 
-
 class ReadInfoResponseMessage( object ):
     @classmethod
     def decode( cls, message ):
@@ -460,7 +459,6 @@ class PumpTimeResponseMessage( MedtronicReceiveMessage ):
     def offset( self ):
         dateTimeData = self.encodedDatetime
         return DateTimeHelper.decodeDateTimeOffset( dateTimeData )
-
 
 class PumpHistoryInfoResponseMessage( MedtronicReceiveMessage ):
     @classmethod
@@ -1280,7 +1278,7 @@ def downloadPumpSession(downloadOperations):
         
     return pumpData
 
-def pumpDownload(mt):
+def statusDownload(mt):
     status = mt.getPumpStatus()
     #print (binascii.hexlify( status.responsePayload ))
     print ("Device serial: {0}".format(mt.deviceSerial))
@@ -1306,5 +1304,5 @@ def pumpDownload(mt):
     
     return result
     
-def readPumpData():
-   return downloadPumpSession(pumpDownload)
+def readLiveData():
+   return downloadPumpSession(statusDownload)

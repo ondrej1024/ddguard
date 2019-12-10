@@ -31,8 +31,11 @@
 #    02/11/2019 - Run timer function as asynchronous thread
 #    07/11/2019 - Add missing sensor exception codes
 #    24/11/2019 - Integrate Nightscout uploader
+#    03/12/2019 - Adapt to modified library names
+#    03/12/2019 - Make Blynk uploader optional
 #
 #  TODO:
+#    - Upload missed data when the pump returns into range
 #    - Add some notification mechanism for alarms e.g. Telegram or Pushover message
 #    - Upload data to Tidepool
 #
@@ -63,7 +66,7 @@ import sys
 import time
 import thread
 import ConfigParser
-import read_minimed_next24
+import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
@@ -86,7 +89,7 @@ BLYNK_YELLOW = "#ED9D00"
 BLYNK_RED    = "#D3435C"
 
 
-sensor_exception_codes = {   
+sensor_exception_codes = {
     SENSOR_EXCEPTIONS.SENSOR_OK:               SENSOR_EXCEPTIONS.SENSOR_OK_STR,
     SENSOR_EXCEPTIONS.SENSOR_INIT:             SENSOR_EXCEPTIONS.SENSOR_INIT_STR,
     SENSOR_EXCEPTIONS.SENSOR_CAL_NEEDED:       SENSOR_EXCEPTIONS.SENSOR_CAL_NEEDED_STR,
@@ -99,7 +102,8 @@ sensor_exception_codes = {
     SENSOR_EXCEPTIONS.SENSOR_READING_LOW:      SENSOR_EXCEPTIONS.SENSOR_READING_LOW_STR,
     SENSOR_EXCEPTIONS.SENSOR_CAL_PENDING:      SENSOR_EXCEPTIONS.SENSOR_CAL_PENDING_STR,
     SENSOR_EXCEPTIONS.SENSOR_CHANGE_CAL_ERROR: SENSOR_EXCEPTIONS.SENSOR_CHANGE_CAL_ERROR_STR,
-    SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN:     SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN_STR
+    SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN:     SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN_STR,
+    SENSOR_EXCEPTIONS.SENSOR_WAITING:          SENSOR_EXCEPTIONS.SENSOR_WAITING_STR
 }
 
 is_connected = False
@@ -118,30 +122,32 @@ def read_config(cfilename):
    # Parameters from global config file
    config = ConfigParser.ConfigParser()
    config.read(cfilename)
+   
+   #TODO: check if file exists
 
    try:
       # Read Blynk parameters
-      read_config.blynk_server    = config.get('blynk', 'server').strip('"').strip("'").split("#")[0]
-      read_config.blynk_token     = config.get('blynk', 'token').strip('"').strip("'").split("#")[0]
-      read_config.blynk_heartbeat = int(config.get('blynk', 'heartbeat').strip('"').strip("'").split("#")[0])
+      read_config.blynk_server    = config.get('blynk', 'server').split("#")[0].strip('"').strip("'").strip()
+      read_config.blynk_token     = config.get('blynk', 'token').split("#")[0].strip('"').strip("'").strip()
+      read_config.blynk_heartbeat = int(config.get('blynk', 'heartbeat').split("#")[0].strip('"').strip("'"))
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed blynk option not found in config file")
       return False
 
    try:
       # Read Nightscout parameters
-      read_config.nightscout_server     = config.get('nightscout', 'server').strip('"').strip("'").split("#")[0]
-      read_config.nightscout_api_secret = config.get('nightscout', 'api_secret').strip('"').strip("'").split("#")[0]
+      read_config.nightscout_server     = config.get('nightscout', 'server').split("#")[0].strip('"').strip("'").strip()
+      read_config.nightscout_api_secret = config.get('nightscout', 'api_secret').split("#")[0].strip('"').strip("'").strip()
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed nightscout option not found in config file")
       return False
 
    try:
       # Read BGL parameters
-      read_config.bgl_low_val      = int(config.get('bgl', 'bgl_low').strip('"').strip("'").split("#")[0])
-      read_config.bgl_pre_low_val  = int(config.get('bgl', 'bgl_pre_low').strip('"').strip("'").split("#")[0])
-      read_config.bgl_pre_high_val = int(config.get('bgl', 'bgl_pre_high').strip('"').strip("'").split("#")[0])
-      read_config.bgl_high_val     = int(config.get('bgl', 'bgl_high').strip('"').strip("'").split("#")[0])
+      read_config.bgl_low_val      = int(config.get('bgl', 'bgl_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_low_val  = int(config.get('bgl', 'bgl_pre_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_high_val = int(config.get('bgl', 'bgl_pre_high').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_high_val     = int(config.get('bgl', 'bgl_high').split("#")[0].strip('"').strip("'"))
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed bgl option not found in config file")
       return False
@@ -169,7 +175,10 @@ def read_config(cfilename):
 #########################################################
 def on_sigterm(signum, frame):
 
-   blynk.disconnect()
+   try:
+      blynk.disconnect()
+   except:
+      pass
    syslog.syslog(syslog.LOG_NOTICE, "Exiting DD-Guard daemon")
    sys.exit()
 
@@ -231,40 +240,42 @@ def blynk_upload(data):
 
 #########################################################
 #
-# Function:    send_pump_data()
-# Description: Read data from pump and send it to cloud
+# Function:    upload_live_data()
+# Description: Read live data from pump and upload it 
+#              to the enabled cloud services
 #              This runs once at startup and then as a 
 #              periodic timer every 5min
 # 
 #########################################################
-def send_pump_data():
+def upload_live_data():
    
    # Guard against multiple threads
-   if send_pump_data.active:
+   if upload_live_data.active:
       return
     
-   send_pump_data.active = True
+   upload_live_data.active = True
    
-   print "read data from pump"
+   print "read live data from pump"
    hasFailed = True
    numRetries = MAX_RETRIES_AT_FAILURE
    while hasFailed and numRetries > 0:
       try:
-         pumpData = read_minimed_next24.readPumpData()
+         liveData = cnl24driverlib.readLiveData()
          hasFailed = False
       except:
-         print "unexpected ERROR occured"
-         syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured")
-         pumpData = None
+         print "unexpected ERROR occured while reading live data"
+         syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured while reading live data")
+         liveData = None
          numRetries -= 1
          if numRetries > 0:
             time.sleep(5)
     
    # Upload data to Blynk server
-   blynk_upload(pumpData)
+   if blynk != None:
+      blynk_upload(liveData)
 
    # TEST
-   #pumpData = {"actins":0.5, 
+   #liveData = {"actins":0.5, 
                #"bgl":778,
                #"time":"111",
                #"trend":2,
@@ -274,9 +285,9 @@ def send_pump_data():
 
    # Upload data to Nighscout server
    if nightscout != None:
-      nightscout.upload(pumpData)
+      nightscout.upload(liveData)
     
-   send_pump_data.active = False
+   upload_live_data.active = False
 
 
 ##########################################################           
@@ -287,43 +298,50 @@ def send_pump_data():
 if read_config(CONFIG_FILE) == False:
    sys.exit()
 
+blynk_enabled = (read_config.blynk_token != "") and (read_config.blynk_server != "")
+nightscout_enabled = (read_config.nightscout_server != "") and (read_config.nightscout_api_secret != "")
+
 # Init Blynk instance
-blynk = blynklib.Blynk(read_config.blynk_token,
-                       server=read_config.blynk_server.strip(),
-                       heartbeat=read_config.blynk_heartbeat)
-timer = blynktimer.Timer()
+if blynk_enabled:
+   print "Blynk upload is enabled"
+   blynk = blynklib.Blynk(read_config.blynk_token,
+                          server=read_config.blynk_server.strip(),
+                          heartbeat=read_config.blynk_heartbeat)
 
-@blynk.handle_event("connect")
-def connect_handler():
-   global is_connected
-   if not is_connected:
-      is_connected = True
-      print('Connected to cloud server')
-      syslog.syslog(syslog.LOG_NOTICE, "Connected to cloud server")
+   @blynk.handle_event("connect")
+   def connect_handler():
+      global is_connected
+      if not is_connected:
+         is_connected = True
+         print('Connected to cloud server')
+         syslog.syslog(syslog.LOG_NOTICE, "Connected to cloud server")
 
-@blynk.handle_event("disconnect")
-def disconnect_handler():
-   global is_connected
-   if is_connected:
-      is_connected = False
-      print('Disconnected from cloud server')
-      syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
-
-
-@timer.register(interval=5, run_once=True)
-@timer.register(interval=UPDATE_INTERVAL, run_once=False)
-def timer_function():
-    # Run this as separate thread so we don't cause ping timeouts
-    thread.start_new_thread(send_pump_data,())
+   @blynk.handle_event("disconnect")
+   def disconnect_handler():
+      global is_connected
+      if is_connected:
+         is_connected = False
+         print('Disconnected from cloud server')
+         syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
+else:
+   blynk = None
 
 # Init Nighscout instance (if requested)
-if read_config.nightscout_server != "" and read_config.nightscout_api_secret != "":
+if nightscout_enabled:
    print "Nightscout upload is enabled"
    nightscout = nightscoutlib.nightscout_uploader(server = read_config.nightscout_server, 
                                                   secret = read_config.nightscout_api_secret)
 else:
    nightscout = None
-   
+
+# Register timer function   
+timer = blynktimer.Timer()
+@timer.register(interval=5, run_once=True)
+@timer.register(interval=UPDATE_INTERVAL, run_once=False)
+def timer_function():
+    # Run this as separate thread so we don't cause ping timeouts
+    thread.start_new_thread(upload_live_data,())
+
    
 ##########################################################           
 # Initialization
@@ -334,11 +352,13 @@ syslog.syslog(syslog.LOG_NOTICE, "Starting DD-Guard daemon, version "+VERSION)
 signal.signal(signal.SIGINT, on_sigterm)
 signal.signal(signal.SIGTERM, on_sigterm)
 
-send_pump_data.active = False
+upload_live_data.active = False
+
 
 ##########################################################           
 # Main loop
 ##########################################################           
 while True:
-   blynk.run()
+   if blynk_enabled:
+      blynk.run()
    timer.run() 
