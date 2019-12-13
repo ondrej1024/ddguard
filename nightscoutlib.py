@@ -16,6 +16,7 @@
 #    19/11/2019 - Initial public release
 #    25/11/2019 - Add exception code handling
 #    29/11/2019 - Upload of real device serial and pump date
+#    13/12/2019 - Check for "lost sensor" condition
 #
 #  Copyright 2019, Ondrej Wisniewski 
 #  
@@ -134,6 +135,11 @@ class nightscout_uploader(object):
 
       rc = True
       url = self.ns_url + self.api_base + "entries.json"
+      
+      # Check for "lost sensor" condition
+      # We don't upload any sensor data in this case
+      if (sgv == 0) and (trend == -3) and (date_str.find("01:00:00 1970") != -1):
+         return False
       
       # Check for exception codes
       if sgv >= 0x0300:
