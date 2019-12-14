@@ -36,7 +36,6 @@
 #  along with crelay.  If not, see <http://www.gnu.org/licenses/>.
 #  
 ###############################################################################
-import time
 import json
 import syslog
 import hashlib
@@ -131,14 +130,15 @@ class nightscout_uploader(object):
    #              API endpoint
    # 
    #########################################################
-   def upload_entries(self, serial, sgv, trend, date_str):
+   def upload_entries(self, serial, sgv, trend, date):
 
       rc = True
       url = self.ns_url + self.api_base + "entries.json"
       
       # Check for "lost sensor" condition
       # We don't upload any sensor data in this case
-      if (sgv == 0) and (trend == -3) and (date_str.find("01:00:00 1970") != -1):
+      if (sgv == 0) and (trend == -3) and (date.strftime("%c").find("01:00:00 1970") != -1):
+         print "Sensor lost, not uploading SGV data"
          return False
       
       # Check for exception codes
@@ -150,8 +150,8 @@ class nightscout_uploader(object):
       payload = {
             "device":self.device+serial,
             "type":"sgv",
-            "dateString":date_str.strftime("%c"),
-            "date":int(date_str.strftime("%s"))*1000,
+            "dateString":date.strftime("%c"),
+            "date":int(date.strftime("%s"))*1000,
             "sgv":sgv,
             "direction":trend_str
          }
@@ -181,7 +181,7 @@ class nightscout_uploader(object):
    #              API endpoint
    # 
    #########################################################
-   def upload_devicestatus(self, serial, battery, reservoir, iob, date_str):
+   def upload_devicestatus(self, serial, battery, reservoir, iob, date):
    
       rc = True
       url = self.ns_url + self.api_base + "devicestatus.json"
@@ -190,13 +190,13 @@ class nightscout_uploader(object):
             #"created_at": int(time.time()*1000),
             #"uploaderBattery": 100,
             "pump": {
-               "clock":int(date_str.strftime("%s"))*1000,
+               "clock":int(date.strftime("%s"))*1000,
                "reservoir":reservoir,
                "battery": {
                   "percent":battery
                },
                "iob": {
-                  "timestamp":int(date_str.strftime("%s"))*1000,
+                  "timestamp":int(date.strftime("%s"))*1000,
                   "bolusiob":iob
                }
             }
