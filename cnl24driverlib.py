@@ -1,4 +1,16 @@
-#!/usr/bin/env python
+###############################################################################
+#  
+#  Contour Next Link 2.4 driver library
+#  
+#  Description:
+#
+#    This is the driver library for the Contour Next Link 2.4 USB radio bridge 
+#    to read the data from the Medtronic Minimed 670G insulin pump 
+#
+#    It is an adaptation of the original driver code from Lennart Goedhart:
+#    https://github.com/pazaan/decoding-contour-next-link
+#  
+###############################################################################
 
 import logging
 # logging.basicConfig has to be before astm import, otherwise logs don't appear
@@ -373,7 +385,6 @@ class MedtronicReceiveMessage( MedtronicMessage ):
     def messageType( self ):
         return struct.unpack( '>H', self.responsePayload[1:3] )[0]
 
-
 class ReadInfoResponseMessage( object ):
     @classmethod
     def decode( cls, message ):
@@ -448,7 +459,6 @@ class PumpTimeResponseMessage( MedtronicReceiveMessage ):
     def offset( self ):
         dateTimeData = self.encodedDatetime
         return DateTimeHelper.decodeDateTimeOffset( dateTimeData )
-
 
 class PumpHistoryInfoResponseMessage( MedtronicReceiveMessage ):
     @classmethod
@@ -1268,9 +1278,10 @@ def downloadPumpSession(downloadOperations):
         
     return pumpData
 
-def pumpDownload(mt):
+def statusDownload(mt):
     status = mt.getPumpStatus()
     #print (binascii.hexlify( status.responsePayload ))
+    print ("Device serial: {0}".format(mt.deviceSerial))
     print ("Active Insulin: {0:.3f}U".format( status.activeInsulin ))
     print ("Sensor BGL: {0} mg/dL ({1:.1f} mmol/L) at {2}".format( status.sensorBGL,
              status.sensorBGL / 18.016,
@@ -1282,8 +1293,9 @@ def pumpDownload(mt):
     print ("Units remaining: {0:.3f}U".format( status.insulinUnitsRemaining ))
     print ("Battery remaining: {0}%".format( status.batteryLevelPercentage ))
     
-    result = {"actins":status.activeInsulin, 
-              "bgl":status.sensorBGL if status.sensorBGL>0 else None,
+    result = {"serial":mt.deviceSerial,
+              "actins":status.activeInsulin, 
+              "bgl":status.sensorBGL, # if status.sensorBGL>0 else None,
               "time":status.sensorBGLTimestamp,
               "trend":status.trendArrow,
               "unit":status.insulinUnitsRemaining,
@@ -1292,5 +1304,5 @@ def pumpDownload(mt):
     
     return result
     
-def readPumpData():
-   return downloadPumpSession(pumpDownload)
+def readLiveData():
+   return downloadPumpSession(statusDownload)

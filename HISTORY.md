@@ -13,7 +13,12 @@ First public release
 ### 0.3 [03/11/2019]
 
 - Run timer function as asynchronous thread to avoid cloud disconnection
-
 - Add install script
 
-  
+### 0.4 [13/11/2019]
+
+* Add missing sensor exception codes
+* Create cnl24driverlib
+* Integrate Nightscout uploader
+
+ 

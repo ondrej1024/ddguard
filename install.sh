@@ -10,7 +10,9 @@ fi
 echo "Installing program files"
 cp ddguard.py $BINDIR
 cp helpers.py $BINDIR
-cp read_minimed_next24.py $BINDIR
+cp sensor_codes.py $BINDIR
+cp cnl24driverlib.py $BINDIR
+cp nightscoutlib.py $BINDIR
 
 echo "Installing udev scripts"
 cp script/30-contour.rules /etc/udev/rules.d/

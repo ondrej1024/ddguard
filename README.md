@@ -14,11 +14,13 @@ DD-Guard was inspired by the [NightScout](http://www.nightscout.info) project an
 
 ## Project Status
 
-Currently I have implemented a working prototype of DD-Guard which I use in the real world to monitor my daughters blood glucose level and pump status at night when she is in her room where the gateway is located. On the app screen of my mobile phone I get updated data for blood glucose level (including history graph) and trend, remaining insulin units in the pumps tank and battery status. Basal rate and active insulin data could be added. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon.
+Currently I have implemented a working prototype of DD-Guard which I use in the real world to monitor my daughters blood glucose level and pump status at night when she is in her room where the gateway is located. On the app screen of my mobile phone I get updated data for blood glucose level (including history graph) and trend, active insulin, remaining insulin units in the pumps tank and battery status. Basal rate  could be added. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon.
 
 It would also be possible for my daughter to take the small gateway device with her when she is going to spend the night at a friends house, so I could still monitor her data. The gateway works as long as it has a power supply and a Wifi network connection.
 
 At the moment the gateway is not mobile, so cannot provide the data when it is on the move. This is something I am planning to do.
+
+A Nightscout uploader option was added lately to the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used phone uploader for this system.
 
 
 

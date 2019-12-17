@@ -29,9 +29,15 @@
 #    24/10/2019 - Add handling of BGL status codes
 #    24/10/2019 - Add handling of display colors according to limits
 #    02/11/2019 - Run timer function as asynchronous thread
-# 
+#    07/11/2019 - Add missing sensor exception codes
+#    24/11/2019 - Integrate Nightscout uploader
+#    03/12/2019 - Adapt to modified library names
+#    03/12/2019 - Make Blynk uploader optional
+#
 #  TODO:
-#    - Add some notification mechanism for alarms e.g. Telegram message
+#    - Upload missed data when the pump returns into range
+#    - Add some notification mechanism for alarms e.g. Telegram or Pushover message
+#    - Upload data to Tidepool
 #
 #  Copyright 2019, Ondrej Wisniewski 
 #  
@@ -60,10 +66,11 @@ import sys
 import time
 import thread
 import ConfigParser
-import read_minimed_next24
+import cnl24driverlib
+import nightscoutlib
+from sensor_codes import SENSOR_EXCEPTIONS
 
-
-VERSION = "0.3"
+VERSION = "0.4"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -81,26 +88,23 @@ BLYNK_BLUE   = "#04C0F8"
 BLYNK_YELLOW = "#ED9D00"
 BLYNK_RED    = "#D3435C"
 
-# Special BGL values
-# TODO: add missing codes
-BGL_VALUE_TOOLOW    = 777
-BGL_VALUE_CHANGE    = 773
-BGL_VALUE_UPDATING  = 771
-BGL_VALUE_CALIBRATE = 770
-BGL_VALUE_WAITING   = 769
 
-BGL_MSG_TOOLOW    = "Sensor value low"
-BGL_MSG_CHANGE    = "Change sensor"
-BGL_MSG_UPDATING  = "Updating sensor"
-BGL_MSG_CALIBRATE = "Calibrate sensor"
-BGL_MSG_WAITING   = "Waiting for sensor"
-
-bgl_status_codes  = {BGL_VALUE_TOOLOW:   BGL_MSG_TOOLOW,
-                     BGL_VALUE_CHANGE:   BGL_MSG_CHANGE,
-                     BGL_VALUE_UPDATING: BGL_MSG_UPDATING,
-                     BGL_VALUE_CALIBRATE:BGL_MSG_CALIBRATE,
-                     BGL_VALUE_WAITING:  BGL_MSG_WAITING
-                    }
+sensor_exception_codes = {
+    SENSOR_EXCEPTIONS.SENSOR_OK:               SENSOR_EXCEPTIONS.SENSOR_OK_STR,
+    SENSOR_EXCEPTIONS.SENSOR_INIT:             SENSOR_EXCEPTIONS.SENSOR_INIT_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CAL_NEEDED:       SENSOR_EXCEPTIONS.SENSOR_CAL_NEEDED_STR,
+    SENSOR_EXCEPTIONS.SENSOR_ERROR:            SENSOR_EXCEPTIONS.SENSOR_ERROR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CAL_ERROR:        SENSOR_EXCEPTIONS.SENSOR_CAL_ERROR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CHANGE_SENSOR:    SENSOR_EXCEPTIONS.SENSOR_CHANGE_SENSOR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_END_OF_LIFE:      SENSOR_EXCEPTIONS.SENSOR_END_OF_LIFE_STR,
+    SENSOR_EXCEPTIONS.SENSOR_NOT_READY:        SENSOR_EXCEPTIONS.SENSOR_NOT_READY_STR,
+    SENSOR_EXCEPTIONS.SENSOR_READING_HIGH:     SENSOR_EXCEPTIONS.SENSOR_READING_HIGH_STR,
+    SENSOR_EXCEPTIONS.SENSOR_READING_LOW:      SENSOR_EXCEPTIONS.SENSOR_READING_LOW_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CAL_PENDING:      SENSOR_EXCEPTIONS.SENSOR_CAL_PENDING_STR,
+    SENSOR_EXCEPTIONS.SENSOR_CHANGE_CAL_ERROR: SENSOR_EXCEPTIONS.SENSOR_CHANGE_CAL_ERROR_STR,
+    SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN:     SENSOR_EXCEPTIONS.SENSOR_TIME_UNKNOWN_STR,
+    SENSOR_EXCEPTIONS.SENSOR_LOST:             SENSOR_EXCEPTIONS.SENSOR_LOST_STR
+}
 
 is_connected = False
 
@@ -118,30 +122,48 @@ def read_config(cfilename):
    # Parameters from global config file
    config = ConfigParser.ConfigParser()
    config.read(cfilename)
+   
+   #TODO: check if file exists
 
    try:
       # Read Blynk parameters
-      read_config.blynk_token     = config.get('blynk', 'token').strip('"').strip("'").split("#")[0]
-      read_config.blynk_heartbeat = int(config.get('blynk', 'heartbeat').strip('"').strip("'").split("#")[0])
+      read_config.blynk_server    = config.get('blynk', 'server').split("#")[0].strip('"').strip("'").strip()
+      read_config.blynk_token     = config.get('blynk', 'token').split("#")[0].strip('"').strip("'").strip()
+      read_config.blynk_heartbeat = int(config.get('blynk', 'heartbeat').split("#")[0].strip('"').strip("'"))
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed blynk option not found in config file")
       return False
 
    try:
+      # Read Nightscout parameters
+      read_config.nightscout_server     = config.get('nightscout', 'server').split("#")[0].strip('"').strip("'").strip()
+      read_config.nightscout_api_secret = config.get('nightscout', 'api_secret').split("#")[0].strip('"').strip("'").strip()
+   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+      syslog.syslog(syslog.LOG_ERR, "ERROR - Needed nightscout option not found in config file")
+      return False
+
+   try:
       # Read BGL parameters
-      read_config.bgl_low_val      = int(config.get('bgl', 'bgl_low').strip('"').strip("'").split("#")[0])
-      read_config.bgl_pre_low_val  = int(config.get('bgl', 'bgl_pre_low').strip('"').strip("'").split("#")[0])
-      read_config.bgl_pre_high_val = int(config.get('bgl', 'bgl_pre_high').strip('"').strip("'").split("#")[0])
-      read_config.bgl_high_val     = int(config.get('bgl', 'bgl_high').strip('"').strip("'").split("#")[0])
+      read_config.bgl_low_val      = int(config.get('bgl', 'bgl_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_low_val  = int(config.get('bgl', 'bgl_pre_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_high_val = int(config.get('bgl', 'bgl_pre_high').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_high_val     = int(config.get('bgl', 'bgl_high').split("#")[0].strip('"').strip("'"))
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed bgl option not found in config file")
       return False
 
-   print ("Blynk token:  %s" % read_config.blynk_token)
+   print ("Blynk server:    %s" % read_config.blynk_server)
+   print ("Blynk token:     %s" % read_config.blynk_token)
+   print ("Blynk heartbeat: %d" % read_config.blynk_heartbeat)
+   print
+   print ("Nightscout server:     %s" % read_config.nightscout_server)
+   print ("Nightscout api_secret: %s" % read_config.nightscout_api_secret)
+   print
    print ("BGL low:      %d" % read_config.bgl_low_val)
    print ("BGL pre low:  %d" % read_config.bgl_pre_low_val)
    print ("BGL pre high: %d" % read_config.bgl_pre_high_val)
    print ("BGL high:     %d" % read_config.bgl_high_val)
+   print
    return True
 
     
@@ -153,90 +175,119 @@ def read_config(cfilename):
 #########################################################
 def on_sigterm(signum, frame):
 
-   blynk.disconnect()
+   try:
+      blynk.disconnect()
+   except:
+      pass
    syslog.syslog(syslog.LOG_NOTICE, "Exiting DD-Guard daemon")
    sys.exit()
 
 
 #########################################################
 #
-# Function:    send_pump_data()
-# Description: Read data from pump and send it to cloud
+# Function:    blynk_upload()
+# Description: Blynk uploader
+# 
+#########################################################
+def blynk_upload(data):
+
+   if data != None:
+      print "Uploading data to Blynk"
+       
+      # Send sensor data
+      if data["bgl"] in sensor_exception_codes:
+         # Special status code
+         blynk.virtual_write(VPIN_SENSOR, None)
+         blynk.virtual_write(VPIN_ARROWS, "--")
+         blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[data["bgl"]])
+         blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
+      else:
+         # Regular BGL data
+         blynk.virtual_write(VPIN_SENSOR, data["bgl"])
+         if data["bgl"] < read_config.bgl_low_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
+         elif data["bgl"] < read_config.bgl_pre_low_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
+         elif data["bgl"] < read_config.bgl_pre_high_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
+         elif data["bgl"] < read_config.bgl_high_val:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
+         else:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
+         blynk.virtual_write(VPIN_ARROWS, str(data["trend"])+" / "+str(data["actins"]))
+         blynk.virtual_write(VPIN_STATUS, "Last update "+str(data["time"]).split(' ')[1].split('.')[0])
+         blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
+       
+      # Send pump data
+      blynk.virtual_write(VPIN_BATTERY, data["batt"])
+      if data["batt"] <= 25:
+         blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
+      elif data["batt"] <= 50:
+         blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
+      else:
+         blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
+      blynk.virtual_write(VPIN_UNITS,   data["unit"])
+      if data["unit"] <= 25:
+         blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
+      elif data["unit"] <= 75:
+         blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
+      else:
+         blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
+   else:
+      syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
+      blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
+
+
+#########################################################
+#
+# Function:    upload_live_data()
+# Description: Read live data from pump and upload it 
+#              to the enabled cloud services
 #              This runs once at startup and then as a 
 #              periodic timer every 5min
 # 
 #########################################################
-def send_pump_data():
+def upload_live_data():
    
-    # Guard against multiple threads
-    if send_pump_data.active:
-       return
+   # Guard against multiple threads
+   if upload_live_data.active:
+      return
     
-    send_pump_data.active = True
+   upload_live_data.active = True
+   
+   print "read live data from pump"
+   hasFailed = True
+   numRetries = MAX_RETRIES_AT_FAILURE
+   while hasFailed and numRetries > 0:
+      try:
+         liveData = cnl24driverlib.readLiveData()
+         hasFailed = False
+      except:
+         print "unexpected ERROR occured while reading live data"
+         syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured while reading live data")
+         liveData = None
+         numRetries -= 1
+         if numRetries > 0:
+            time.sleep(5)
     
-    print "read data from pump"
-    hasFailed = True
-    numRetries = MAX_RETRIES_AT_FAILURE
-    while hasFailed and numRetries > 0:
-       try:
-          pumpData = read_minimed_next24.readPumpData()
-          hasFailed = False
-       except:
-          print "unexpected ERROR occured"
-          syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured")
-          pumpData = None
-          numRetries -= 1
-          if numRetries > 0:
-             time.sleep(5)
+   # Upload data to Blynk server
+   if blynk != None:
+      blynk_upload(liveData)
+
+   # TEST
+   #liveData = {"actins":0.5, 
+               #"bgl":778,
+               #"time":"111",
+               #"trend":2,
+               #"unit":60,
+               #"batt":25
+              #}
+
+   # Upload data to Nighscout server
+   if nightscout != None:
+      nightscout.upload(liveData)
     
-    if pumpData != None:
-       print "send data to cloud backend"
-       
-       # Send sensor data
-       if pumpData["bgl"] in bgl_status_codes:
-          # Special status code
-          blynk.virtual_write(VPIN_SENSOR, None)
-          blynk.virtual_write(VPIN_ARROWS, "--")
-          blynk.virtual_write(VPIN_STATUS, bgl_status_codes[pumpData["bgl"]])
-          blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
-       else:
-          # Regular BGL data
-          blynk.virtual_write(VPIN_SENSOR, pumpData["bgl"])
-          if pumpData["bgl"] < read_config.bgl_low_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
-          elif pumpData["bgl"] < read_config.bgl_pre_low_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-          elif pumpData["bgl"] < read_config.bgl_pre_high_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
-          elif pumpData["bgl"] < read_config.bgl_high_val:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-          else:
-             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
-          blynk.virtual_write(VPIN_ARROWS, pumpData["trend"])
-          blynk.virtual_write(VPIN_STATUS, "Last update "+str(pumpData["time"]).split(' ')[1].split('.')[0])
-          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
-       
-       # Send pump data
-       blynk.virtual_write(VPIN_BATTERY, pumpData["batt"])
-       if pumpData["batt"] <= 25:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
-       elif pumpData["batt"] <= 50:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
-       else:
-          blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
-       blynk.virtual_write(VPIN_UNITS,   pumpData["unit"])
-       if pumpData["unit"] <= 25:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
-       elif pumpData["unit"] <= 75:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
-       else:
-          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
-    else:
-       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
-       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
-       
-    print    
-    send_pump_data.active = False
+   upload_live_data.active = False
 
 
 ##########################################################           
@@ -247,34 +298,51 @@ def send_pump_data():
 if read_config(CONFIG_FILE) == False:
    sys.exit()
 
+blynk_enabled = (read_config.blynk_token != "") and (read_config.blynk_server != "")
+nightscout_enabled = (read_config.nightscout_server != "") and (read_config.nightscout_api_secret != "")
+
 # Init Blynk instance
-blynk = blynklib.Blynk(read_config.blynk_token, heartbeat=read_config.blynk_heartbeat)
+if blynk_enabled:
+   print "Blynk upload is enabled"
+   blynk = blynklib.Blynk(read_config.blynk_token,
+                          server=read_config.blynk_server.strip(),
+                          heartbeat=read_config.blynk_heartbeat)
+
+   @blynk.handle_event("connect")
+   def connect_handler():
+      global is_connected
+      if not is_connected:
+         is_connected = True
+         print('Connected to cloud server')
+         syslog.syslog(syslog.LOG_NOTICE, "Connected to cloud server")
+
+   @blynk.handle_event("disconnect")
+   def disconnect_handler():
+      global is_connected
+      if is_connected:
+         is_connected = False
+         print('Disconnected from cloud server')
+         syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
+else:
+   blynk = None
+
+# Init Nighscout instance (if requested)
+if nightscout_enabled:
+   print "Nightscout upload is enabled"
+   nightscout = nightscoutlib.nightscout_uploader(server = read_config.nightscout_server, 
+                                                  secret = read_config.nightscout_api_secret)
+else:
+   nightscout = None
+
+# Register timer function   
 timer = blynktimer.Timer()
-
-@blynk.handle_event("connect")
-def connect_handler():
-   global is_connected
-   if not is_connected:
-      is_connected = True
-      print('Connected to cloud server')
-      syslog.syslog(syslog.LOG_NOTICE, "Connected to cloud server")
-
-@blynk.handle_event("disconnect")
-def disconnect_handler():
-   global is_connected
-   if is_connected:
-      is_connected = False
-      print('Disconnected from cloud server')
-      syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
-
-
 @timer.register(interval=5, run_once=True)
 @timer.register(interval=UPDATE_INTERVAL, run_once=False)
 def timer_function():
     # Run this as separate thread so we don't cause ping timeouts
-    thread.start_new_thread(send_pump_data,())
+    thread.start_new_thread(upload_live_data,())
 
-
+   
 ##########################################################           
 # Initialization
 ##########################################################           
@@ -284,11 +352,13 @@ syslog.syslog(syslog.LOG_NOTICE, "Starting DD-Guard daemon, version "+VERSION)
 signal.signal(signal.SIGINT, on_sigterm)
 signal.signal(signal.SIGTERM, on_sigterm)
 
-send_pump_data.active = False
+upload_live_data.active = False
+
 
 ##########################################################           
 # Main loop
 ##########################################################           
 while True:
-   blynk.run()
+   if blynk_enabled:
+      blynk.run()
    timer.run() 
