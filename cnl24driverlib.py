@@ -572,15 +572,15 @@ class PumpStatusResponseMessage( MedtronicReceiveMessage ):
 
     @property
     def trendArrow( self ):
-        status = int( struct.unpack( '>B', self.responsePayload[0x40:0x41] )[0] )
-        if status == 0x60:
-            return 0 #"No arrows"
-        elif status == 0xc0:
+        status = int( struct.unpack( '>B', self.responsePayload[0x40:0x41] )[0] ) & 0xF0
+        if status == 0xc0:
             return 3 #"3 arrows up"
         elif status == 0xa0:
             return 2 #"2 arrows up"
         elif status == 0x80:
             return 1 #"1 arrow up"
+        elif status == 0x60:
+            return 0 #"No arrows"
         elif status == 0x40:
             return -1 #"1 arrow down"
         elif status == 0x20:
