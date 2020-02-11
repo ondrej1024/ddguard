@@ -33,13 +33,14 @@
 #    24/11/2019 - Integrate Nightscout uploader
 #    03/12/2019 - Adapt to modified library names
 #    03/12/2019 - Make Blynk uploader optional
+#    11/02/2020 - Add Blynk virtual pin for active insulin
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
 #    - Add some notification mechanism for alarms e.g. Telegram or Pushover message
 #    - Upload data to Tidepool
 #
-#  Copyright 2019, Ondrej Wisniewski 
+#  Copyright 2019-2020, Ondrej Wisniewski 
 #  
 #  This file is part of the DD-Guard project.
 #  
@@ -70,7 +71,7 @@ import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.4"
+VERSION = "0.4.1"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -81,6 +82,7 @@ VPIN_BATTERY = 2
 VPIN_UNITS   = 3
 VPIN_ARROWS  = 4
 VPIN_STATUS  = 5
+VPIN_ACTINS  = 6
 
 # color definitions
 BLYNK_GREEN  = "#23C48E"
@@ -233,6 +235,7 @@ def blynk_upload(data):
          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
       else:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
+      blynk.virtual_write(VPIN_ACTINS,   data["actins"])
    else:
       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
