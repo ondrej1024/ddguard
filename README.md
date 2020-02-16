@@ -20,13 +20,13 @@ It would also be possible for my daughter to take the small gateway device with 
 
 At the moment the gateway is not mobile, so cannot provide the data when it is on the move. This is something I am planning to do.
 
-A Nightscout uploader option was added lately to the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used phone uploader for this system.
+A Nightscout uploader option is also available for the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used phone uploader for this system.
 
 
 
 ## Screenshots
 
-These are some typical screenshots form the smartphone app.
+These are some typical screenshots from the smartphone app.
 
 ![Screenshots](img/ddguard-screenshots.png)
 
