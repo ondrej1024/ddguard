@@ -9,12 +9,15 @@
 #
 #    It is an adaptation of the original driver code from Lennart Goedhart:
 #    https://github.com/pazaan/decoding-contour-next-link
+#
+#  Changes:
+#    30/03/2020: backport comms robustness improvements from Android uploader
 #  
 ###############################################################################
 
 import logging
 # logging.basicConfig has to be before astm import, otherwise logs don't appear
-logging.basicConfig(format='%(asctime)s %(levelname)s [%(name)s] %(message)s', level=logging.WARNING)
+logging.basicConfig(format='%(asctime)s %(levelname)s [%(name)s] %(message)s', level=logging.DEBUG)
 # a nasty workaround on missing hidapi.dll on my windows (allows testing from saved files, but not download of pump)
 try:
     import hid # pip install hidapi - Platform independant
@@ -330,8 +333,8 @@ class MedtronicSendMessage( MedtronicMessage ):
             encryptedPayload += payload
         crc = crc16.crc16xmodem( encryptedPayload, 0xffff )
         encryptedPayload += struct.pack( '>H', crc & 0xffff )
-        # logger.debug("### PAYLOAD")
-        # logger.debug(binascii.hexlify( encryptedPayload ))
+        #logger.debug("### PAYLOAD")
+        #logger.debug(binascii.hexlify( encryptedPayload ))
         
         mmPayload = struct.pack( '<QBBB',
             self.session.pumpMAC,
@@ -355,8 +358,8 @@ class MedtronicReceiveMessage( MedtronicMessage ):
 
         response.responsePayload = decryptedResponsePayload[0:-2]
 
-        # logger.debug("### DECRYPTED PAYLOAD:")
-        # logger.debug(binascii.hexlify( response.responsePayload ))
+        #logger.debug("### DECRYPTED PAYLOAD:")
+        #logger.debug(binascii.hexlify( response.responsePayload ))
 
         if len( response.responsePayload ) > 2:
             checksum = struct.unpack( '>H', decryptedResponsePayload[-2:])[0]
@@ -907,7 +910,6 @@ class Medtronic600SeriesDriver( object ):
         self.session.KEY = bytes(keyRequest.linkKey( self.session.stickSerial ))
         logger.debug("LINK KEY: {0}".format(binascii.hexlify(self.session.KEY)))
 
-
     def negotiateChannel( self ):
         logger.info("# Negotiate pump comms channel")
 
@@ -919,8 +921,10 @@ class Medtronic600SeriesDriver( object ):
 
             bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
             self.sendMessage( bayerMessage.encode() )
-            self.getBayerBinaryMessage(0x81) # Read the 0x81
-            response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+            #self.getBayerBinaryMessage(0x81) # Read the 0x81
+            self.readResponse0x81() # ondrej1024: advanced version
+            #response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+            response = self.readResponse0x80() # ondrej1024: advanced version
             if len( response.payload ) > 13:
                 # Check that the channel ID matches
                 responseChannel = response.payload[43]
@@ -936,13 +940,202 @@ class Medtronic600SeriesDriver( object ):
         else:
             self.session.config.lastRadioChannel = self.session.radioChannel
 
+    # *** Added by ondrej1024 ***
+    
+    def clearMessage():
+       
+        logger.debug("## clearMessage")
+        
+        count = 0;
+        cleared = false;
+
+        while not cleared:
+            try:
+                payload = self.readMessage()
+                count+=1
+
+                # the following are always seen as the end of an incoming stream and can be considered as completed clear indicators
+
+                # check for 'no pump response'
+                # 55 | 0B | 00 00 | 00 02 00 00 03 00 00
+                if len(payload) == 0x2E and payload[0x21] == 0x55 and payload[0x23] == 0x00 and payload[0x24] == 0x00 and payload[0x26] == 0x02 and payload[0x29] == 0x03:
+                    logger.warning("## CLEAR: got 'no pump response' message indicating stream cleared")
+                    cleared = true
+
+                elif len(payload) == 0x30 and payload[0x21] == 0x55  and payload[0x24] == 0x00 and payload[0x25] == 0x00 and payload[0x26] == 0x02 and payload[0x29] == 0x02 and payload[0x2B] == 0x01:
+                    logger.warning("## CLEAR: got message containing '55 0D 00 00 00 02 00 00 02 00 01 XX XX' (lost pump connection)")
+
+                # check for 'non-standard network connect'
+                # standard 'network connect' 0x80 response
+                # 55 | 2C | 00 04 | xx xx xx xx xx | 02 | xx xx xx xx xx xx xx xx | 82 | 00 00 00 00 00 | 07 | 00 | xx | xx xx xx xx xx xx xx xx | 42 | 00 00 00 00 00 00 00 | xx
+                # 55 | size | type | pump serial | ... | pump mac | ... | ... | ... | rssi | cnl mac | ... | ... | channel
+                # difference to the standard 'network connect' response
+                # -- | -- | 00 00 | -- -- -- -- -- | -- | -- -- -- -- -- -- -- -- | 83 | -- -- -- -- -- | -- | xx | -- | -- -- -- -- -- -- -- -- | 43 | -- -- -- -- -- -- -- | --
+                elif len(payload) == 0x4F and payload[0x21] == 0x55 and payload[0x23] == 0x00 and payload[0x24] == 0x00 and (payload[0x33] & 0xFF) == 0x83 and payload[0x44] == 0x43:
+                    logger.warning("## CLEAR: got 'non-standard network connect' message indicating stream cleared")
+                    cleared = true
+
+            except TimeoutException:
+                cleared = true
+
+        if count > 0:
+           logger.warning("## CLEAR: message stream cleared " + count + " messages.")
+
+        return count
+    
+    def readResponse0x80(self):
+       
+        logger.debug("## readResponse0x80")
+        
+        payload = self.readMessage()
+
+        # minimum 0x80 message size?
+        if len(payload) <= 0x21:
+            logger.error("readResponse0x80: message size <= 0x21")
+            self.clearMessage()
+            #raise UnexpectedMessageException(("0x80 response message size less then expected")
+
+        # 0x80 message?
+        if (payload[0x12] & 0xFF) != 0x80:
+            logger.error("readResponse0x80: message not a 0x80")
+            self.clearMessage()
+            raise UnexpectedMessageException("0x80 response message not a 0x80")
+
+        # message and internal payload size correct?
+        if len(payload) != (0x21 + payload[0x1C] & 0x00FF | payload[0x1D] << 8 & 0xFF00):
+            logger.error("readResponse0x80: message size mismatch")
+            self.clearMessage()
+            raise UnexpectedMessageException("0x80 response message size mismatch")
+
+        # 1 byte response? (generally seen as a 0x00 or 0xFF, unknown meaning and high risk of CNL E86 follows)
+        if len(payload) == 0x22:
+            logger.error("readResponse0x80: message with 1 byte internal payload")
+            # do not retry, end the session
+            raise UnexpectedMessageException("0x80 response message internal payload is 0x..., connection lost")
+
+        # internal 0x55 payload?
+        elif payload[0x21] != 0x55:
+            logger.error("readResponse0x80: message no internal 0x55")
+            self.clearMessage()
+            # do not retry, end the session
+            raise UnexpectedMessageException("0x80 response message internal payload not a 0x55, connection lost")
+
+        if len(payload) == 0x2E:
+            # no pump response?
+            if payload[0x24] == 0x00 and payload[0x25] == 0x00 and payload[0x26] == 0x02 and payload[0x27] == 0x00:
+                logger.warning("## readResponse0x80: message containing '55 0B 00 00 00 02 00 00 03 00 00' (no pump response)")
+                # stream is always clear after this message
+                raise UnexpectedMessageException("no response from pump")
+
+            # no connect response?
+            elif payload[0x24] == 0x00 and payload[0x25] == 0x20 and payload[0x26] == 0x00 and payload[0x27] == 0x00:
+                logger.debug("## readResponse0x80: message containing '55 0B 00 00 20 00 00 00 03 00 00' (no connect)")
+
+            # bad response?
+            # seen during multipacket transfers, may indicate a full CNL receive buffer
+            elif payload[0x24] == 0x06 and (payload[0x25] & 0xFF) == 0x88 and payload[0x26] == 0x00 and payload[0x27] == 0x65:
+                logger.warning("## readResponse0x80: message containing '55 0B 00 06 88 00 65 XX 03 00 00' (bad response)")
+
+        # lost pump connection?
+        elif len(payload) == 0x30 and payload[0x24] == 0x00 and payload[0x25] == 0x00 and payload[0x26] == 0x02 and payload[0x29] == 0x02 and payload[0x2B] == 0x01:
+            logger.error("readResponse0x80: message containing '55 0D 00 00 00 02 00 00 02 00 01 XX XX' (lost pump connection)")
+            self.clearMessage()
+            # do not retry, end the session
+            raise UnexpectedMessageException("connection lost")
+
+        # connection
+        elif len(payload) == 0x4F:
+            # network connect
+            # 55 | 2C | 00 04 | xx xx xx xx xx | 02 | xx xx xx xx xx xx xx xx | 82 | 00 00 00 00 00 | 07 | 00 | xx | xx xx xx xx xx xx xx xx | 42 | 00 00 00 00 00 00 00 | xx
+            # 55 | size | type | pump serial | ... | pump mac | ... | ... | ... | rssi | cnl mac | ... | ... | channel
+            if payload[0x24] == 0x04 and (payload[0x33] & 0xFF) == 0x82 and payload[0x44] == 0x42:
+                logger.debug("## readResponse0x80: message containing network connect (pump connected)")
+
+            # non-standard network connect
+            # -- | -- | 00 00 | -- -- -- -- -- | -- | -- -- -- -- -- -- -- -- | 83 | -- -- -- -- -- | -- | xx | -- | -- -- -- -- -- -- -- -- | 43 | -- -- -- -- -- -- -- | --
+            elif payload[0x24] == 0x00 and (payload[0x33] & 0xFF) == 0x83 and payload[0x44] == 0x43:
+                logger.error("readResponse0x80: message containing non-standard network connect (lost pump connection)")
+                # stream is always clear after this message
+                # do not retry, end the session
+                raise UnexpectedMessageException("connection lost")
+     
+        return BayerBinaryMessage.decode(payload)
+    
+    def readResponse0x81(self):
+
+        logger.debug("## readResponse0x81")
+        
+        try:
+            # an 0x81 response is always expected after sending a request
+            # keep reading until we get it or timeout
+            while True:
+                #message = BayerBinaryMessage.decode(self.readMessage())
+                payload = self.readMessage()           # Read USB packet payload
+                if len(payload) < 0x21:                # Check for min length
+                    logger.warning("## readResponse0x81: message size less then expected, length = {0}".format(len(payload)))
+                elif (payload[0x12] & 0xFF) != 0x81:   # Check operation byte (expect 0x81 SEND_MESSAGE_RESPONSE)
+                    logger.warning("## readResponse0x81: message not a 0x81, got a 0x{0:x}".format(payload[0x12]))
+                else:
+                    break
+        
+        except TimeoutException:                       # Timeout in readMessage()
+            # ugh... there should always be a CNL 0x81 response and if we don't get one
+            # it usually ends with a E86 / E81 error on the CNL needing a unplug/plug cycle
+            logger.error("readResponse0x81: timeout waiting for 0x81 response")
+            raise TimeoutException("Timeout waiting for 0x81 response")
+
+        # Perform more checks
+
+        # empty response?
+        if len(payload) <= 0x21:
+            logger.error("readResponse0x81: message size <= 0x21")
+            self.clearMessage()
+            # do not retry, end the session
+            raise UnexpectedMessageException("0x81 response was empty, connection lost")
+        
+        # message and internal payload size correct?
+        elif len(payload) != (0x21 + payload[0x1C] & 0x00FF | payload[0x1D] << 8 & 0xFF00):
+            logger.error("readResponse0x81: message size mismatch")
+            self.clearMessage()
+            raise UnexpectedMessageException("0x81 response message size mismatch")
+        
+        # internal 0x55 payload?
+        elif payload[0x21] != 0x55:
+            logger.error("readResponse0x81: message no internal 0x55")
+            self.clearMessage()
+            raise UnexpectedMessageException("0x81 response was not a 0x55 message")
+
+        # state flag?
+        # standard response:
+        # 55 | 0D   | 00 04 | 00 00 00 00 03 00 01 | xx | xx
+        # 55 | size | type  | ... | seq | state
+        if len(payload) == 0x30:
+            if payload[0x2D] == 0x04:
+                logger.warning("## readResponse0x81: message [0x2D]==0x04 (noisy/busy)")
+            
+            elif payload[0x2D] != 0x02:
+                logger.error("readResponse0x81: message [0x2D]!=0x02 (unknown state)")
+                self.clearMessage()
+                raise UnexpectedMessageException("0x81 unknown state flag")
+            
+        # connection
+        elif len(payload) == 0x27 and payload[0x23] == 0x00 and payload[0x24] == 0x00:
+            logger.warning("## readResponse0x81: message containing '55 04 00 00' (network not connected)")
+        else:
+            logger.warning("## readResponse0x81: unknown 0x55 message type")
+
+        return payload
+  
+    # *********************************************************************************************
+
     def beginEHSM( self ):
         logger.info("# Begin Extended High Speed Mode Session")
         mtMessage = BeginEHSMMessage( self.session )
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # The Begin EHSM only has an 0x81 response.
+        #self.getBayerBinaryMessage(0x81) # The Begin EHSM only has an 0x81 response.
+        self.readResponse0x81() # ondrej1024: advanced version
 
     def finishEHSM( self ):
         logger.info("# Finish Extended High Speed Mode Session")
@@ -952,7 +1145,8 @@ class Medtronic600SeriesDriver( object ):
             bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
             self.sendMessage( bayerMessage.encode() )
             try:
-                self.getBayerBinaryMessage(0x81) # The Finish EHSM only has an 0x81 response.
+                #self.getBayerBinaryMessage(0x81) # The Finish EHSM only has an 0x81 response.
+                self.readResponse0x81() # ondrej1024: advanced version
             except:
                 # if does not come, ignore...
                 pass
@@ -974,7 +1168,8 @@ class Medtronic600SeriesDriver( object ):
         messageReceived = False
         medMessage = None
         while messageReceived == False:
-            message = self.getBayerBinaryMessage(0x80)
+            #message = self.getBayerBinaryMessage(0x80)
+            message = self.readResponse0x80() # ondrej1024: advanced version
             medMessage = MedtronicReceiveMessage.decode(message.payload, self.session)
             if medMessage.messageType in expectedMessageTypes:
                 messageReceived = True
@@ -988,7 +1183,8 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81)
+        #self.getBayerBinaryMessage(0x81)
+        self.readResponse0x81() # ondrej1024: advanced version
         result = self.getMedtronicMessage([COM_D_COMMAND.TIME_RESPONSE])
         self.offset = result.offset;
         return result
@@ -999,7 +1195,8 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
         response = self.getMedtronicMessage([COM_D_COMMAND.READ_PUMP_STATUS_RESPONSE])
         return response
 
@@ -1009,7 +1206,8 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
         response = self.getMedtronicMessage([COM_D_COMMAND.READ_HISTORY_INFO_RESPONSE])
         return response
 
@@ -1020,7 +1218,8 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
 
         transmissionCompleted = False
         while transmissionCompleted != True:
@@ -1041,7 +1240,9 @@ class Medtronic600SeriesDriver( object ):
                 ackMessage = AckMultipacketRequestMessage(self.session, AckMultipacketRequestMessage.SEGMENT_COMMAND__INITIATE_TRANSFER)
                 bayerAckMessage = BayerBinaryMessage( 0x12, self.session, ackMessage.encode() )
                 self.sendMessage( bayerAckMessage.encode() )
-                self.getBayerBinaryMessage(0x81) # Read the 0x81
+                #self.getBayerBinaryMessage(0x81) # Read the 0x81
+                self.readResponse0x81() # ondrej1024: advanced version
+
             elif responseSegment.messageType == COM_D_COMMAND.MULTIPACKET_SEGMENT_TRANSMISSION:
                 logger.debug("## getPumpHistory got MULTIPACKET_SEGMENT_TRANSMISSION")
                 logger.debug("## getPumpHistory responseSegment.packetNumber: {0}".format(responseSegment.packetNumber))
@@ -1069,7 +1270,8 @@ class Medtronic600SeriesDriver( object ):
                     ackMessage = AckMultipacketRequestMessage(self.session, AckMultipacketRequestMessage.SEGMENT_COMMAND__SEND_NEXT_SEGMENT)
                     bayerAckMessage = BayerBinaryMessage( 0x12, self.session, ackMessage.encode() )
                     self.sendMessage( bayerAckMessage.encode() )
-                    self.getBayerBinaryMessage(0x81) # Read the 0x81
+                    #self.getBayerBinaryMessage(0x81) # Read the 0x81
+                    self.readResponse0x81() # ondrej1024: advanced version
             elif responseSegment.messageType == COM_D_COMMAND.END_HISTORY_TRANSMISSION:
                 logger.debug("## getPumpHistory got END_HISTORY_TRANSMISSION")
                 transmissionCompleted = True
@@ -1166,8 +1368,10 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
-        response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
+        #response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        response = self.readResponse0x80() # ondrej1024: advanced version
         return MedtronicReceiveMessage.decode( response.payload, self.session )
 
     def getBolusesStatus( self ):
@@ -1176,8 +1380,10 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
-        response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
+        #response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        response = self.readResponse0x80() # ondrej1024: advanced version
         return MedtronicReceiveMessage.decode( response.payload, self.session )
 
     def getBasicParameters( self ):
@@ -1186,8 +1392,10 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
-        response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
+        #response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        response = self.readResponse0x80() # ondrej1024: advanced version
         return MedtronicReceiveMessage.decode( response.payload, self.session )
 
     def do405Message( self, pumpDateTime ):
@@ -1196,8 +1404,10 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
-        response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
+        #response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        response = self.readResponse0x80() # ondrej1024: advanced version
         return MedtronicReceiveMessage.decode( response.payload, self.session )
 
     def do124Message( self, pumpDateTime ):
@@ -1206,8 +1416,10 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
-        response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
+        #response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        response = self.readResponse0x80() # ondrej1024: advanced version
         return MedtronicReceiveMessage.decode( response.payload, self.session )
 
     def doRemoteBolus( self, bolusID, amount, execute ):
@@ -1216,8 +1428,10 @@ class Medtronic600SeriesDriver( object ):
 
         bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
         self.sendMessage( bayerMessage.encode() )
-        self.getBayerBinaryMessage(0x81) # Read the 0x81
-        response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        #self.getBayerBinaryMessage(0x81) # Read the 0x81
+        self.readResponse0x81() # ondrej1024: advanced version
+        #response = BayerBinaryMessage.decode( self.readMessage() ) # Read the 0x80
+        response = self.readResponse0x80() # ondrej1024: advanced version
         return MedtronicReceiveMessage.decode( response.payload, self.session )
 
     def doRemoteSuspend( self ):
@@ -1303,6 +1517,6 @@ def statusDownload(mt):
              }
     
     return result
-    
+
 def readLiveData():
    return downloadPumpSession(statusDownload)
