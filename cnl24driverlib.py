@@ -11,7 +11,7 @@
 #    https://github.com/pazaan/decoding-contour-next-link
 #
 #  Changes:
-#    30/03/2020: backport comms robustness improvements from Android uploader
+#    30/03/2020: Backport comms robustness improvements from Android uploader
 #  
 ###############################################################################
 
@@ -754,6 +754,11 @@ class Medtronic600SeriesDriver( object ):
     USB_VID = 0x1a79
     USB_PID = 0x6210
     MAGIC_HEADER = b'ABC'
+    
+    ERROR_CLEAR_TIMEOUT_MS   = 25000
+    PRESEND_CLEAR_TIMEOUT_MS = 50
+    READ_TIMEOUT_MS          = 10000
+    CNL_READ_TIMEOUT_MS      = 2000
 
     CHANNELS = [ 0x14, 0x11, 0x0e, 0x17, 0x1a ] # In the order that the CareLink applet requests them
 
@@ -779,26 +784,47 @@ class Medtronic600SeriesDriver( object ):
         logger.info("# Closing device")
         self.device.close()
 
-    def readMessage( self ):
+    def readMessage( self, timeout_ms=READ_TIMEOUT_MS ):
         payload = bytearray()
-        while True:
-            data = self.device.read( self.USB_BLOCKSIZE, timeout_ms = 10000 )
+        bytesRead = 0
+        payloadSize = 0
+        expectedSize = 0
+        first = True
+        
+        #while True:
+        while first or (bytesRead > 0 and payloadSize == self.USB_BLOCKSIZE-4 and len(payload) != expectedSize):
+            t = timeout_ms if first else 10000
+            data = self.device.read( self.USB_BLOCKSIZE, timeout_ms = t )
+            first = False
             if data:
+                bytesRead = len(data)
+                payloadSize = data[3]
                 if( bytearray( data[0:3] ) != self.MAGIC_HEADER ):
                     logger.error('Recieved invalid USB packet')
                     raise RuntimeError( 'Recieved invalid USB packet')
                 payload.extend( data[4:data[3] + 4] )
                 # TODO - how to deal with messages that finish on the boundary?
-                if data[3] != self.USB_BLOCKSIZE - 4:
-                    break
+                #if data[3] != self.USB_BLOCKSIZE - 4:
+                #    break
+
+                # get the expected size for 0x80 or 0x81 messages as they may be on a block boundary
+                if expectedSize == 0 and data[3] >= 0x21  and ((data[0x12 + 4] & 0xFF == 0x80) or (data[0x12 + 4] & 0xFF == 0x81)):
+                    expectedSize = 0x21 + ((data[0x1C + 4] & 0x00FF) | (data[0x1D + 4] << 8 & 0xFF00))
+               
+                logger.debug('READ: bytesRead={0}, payloadSize={1}, expectedSize={2}'.format(bytesRead, payloadSize, expectedSize))
+
             else:
-                logger.warning('Timeout waiting for message')
+                #logger.warning('Timeout waiting for message')
                 raise TimeoutException( 'Timeout waiting for message' )
 
         # logger.debug("READ: " + binascii.hexlify( payload )) # Debugging
         return payload
 
     def sendMessage( self, payload ):
+        
+        # Clear any message in the receive buffer
+        self.clearMessage(timeout_ms=self.PRESEND_CLEAR_TIMEOUT_MS) # ondrej1024
+        
         # Split the message into 60 byte chunks
         for packet in [ payload[ i: i+60 ] for i in range( 0, len( payload ), 60 ) ]:
             message = struct.pack( '>3sB', self.MAGIC_HEADER, len( packet ) ) + packet
@@ -942,16 +968,16 @@ class Medtronic600SeriesDriver( object ):
 
     # *** Added by ondrej1024 ***
     
-    def clearMessage():
+    def clearMessage(self, timeout_ms=ERROR_CLEAR_TIMEOUT_MS):
        
-        logger.debug("## clearMessage")
+        logger.debug("## clearMessage: timeout={0}".format(timeout_ms))
         
-        count = 0;
-        cleared = false;
+        count = 0
+        cleared = False
 
         while not cleared:
             try:
-                payload = self.readMessage()
+                payload = self.readMessage(timeout_ms)
                 count+=1
 
                 # the following are always seen as the end of an incoming stream and can be considered as completed clear indicators
@@ -960,10 +986,11 @@ class Medtronic600SeriesDriver( object ):
                 # 55 | 0B | 00 00 | 00 02 00 00 03 00 00
                 if len(payload) == 0x2E and payload[0x21] == 0x55 and payload[0x23] == 0x00 and payload[0x24] == 0x00 and payload[0x26] == 0x02 and payload[0x29] == 0x03:
                     logger.warning("## CLEAR: got 'no pump response' message indicating stream cleared")
-                    cleared = true
+                    cleared = True
 
                 elif len(payload) == 0x30 and payload[0x21] == 0x55  and payload[0x24] == 0x00 and payload[0x25] == 0x00 and payload[0x26] == 0x02 and payload[0x29] == 0x02 and payload[0x2B] == 0x01:
                     logger.warning("## CLEAR: got message containing '55 0D 00 00 00 02 00 00 02 00 01 XX XX' (lost pump connection)")
+                    cleared = True
 
                 # check for 'non-standard network connect'
                 # standard 'network connect' 0x80 response
@@ -973,13 +1000,13 @@ class Medtronic600SeriesDriver( object ):
                 # -- | -- | 00 00 | -- -- -- -- -- | -- | -- -- -- -- -- -- -- -- | 83 | -- -- -- -- -- | -- | xx | -- | -- -- -- -- -- -- -- -- | 43 | -- -- -- -- -- -- -- | --
                 elif len(payload) == 0x4F and payload[0x21] == 0x55 and payload[0x23] == 0x00 and payload[0x24] == 0x00 and (payload[0x33] & 0xFF) == 0x83 and payload[0x44] == 0x43:
                     logger.warning("## CLEAR: got 'non-standard network connect' message indicating stream cleared")
-                    cleared = true
+                    cleared = True
 
             except TimeoutException:
-                cleared = true
+                cleared = True
 
         if count > 0:
-           logger.warning("## CLEAR: message stream cleared " + count + " messages.")
+           logger.warning("## CLEAR: message stream cleared " + str(count) + " messages.")
 
         return count
     
