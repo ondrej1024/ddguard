@@ -17,7 +17,7 @@
 
 import logging
 # logging.basicConfig has to be before astm import, otherwise logs don't appear
-logging.basicConfig(format='%(asctime)s %(levelname)s [%(name)s] %(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s %(levelname)s [%(name)s] %(message)s', level=logging.WARNING)
 # a nasty workaround on missing hidapi.dll on my windows (allows testing from saved files, but not download of pump)
 try:
     import hid # pip install hidapi - Platform independant
@@ -829,7 +829,7 @@ class Medtronic600SeriesDriver( object ):
         for packet in [ payload[ i: i+60 ] for i in range( 0, len( payload ), 60 ) ]:
             message = struct.pack( '>3sB', self.MAGIC_HEADER, len( packet ) ) + packet
             self.device.write( bytearray( message ) )
-            # logger.debug("SEND: " + binascii.hexlify( message )) # Debugging
+            logger.debug("SEND: " + binascii.hexlify( message )) # Debugging
 
     @property
     def deviceSerial( self ):
@@ -842,21 +842,42 @@ class Medtronic600SeriesDriver( object ):
         logger.info("# Read Device Info")
         self.sendMessage( struct.pack( '>B', 0x58 ) )
 
-        try:
-            msg = self.readMessage()
+        while True:
+            try:
+                logger.debug(' ## Read first message')
+                msg1 = self.readMessage()
+                
+                logger.debug(' ## Read second message')
+                msg2 = self.readMessage()
 
-            if not astm.codec.is_chunked_message( msg ):
-                logger.error('readDeviceInfo: Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ))
-                raise RuntimeError( 'Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ) )
+                #if not astm.codec.is_chunked_message( msg ):
+                if astm.codec.is_chunked_message( msg1 ):
+                    logger.debug(' ## First message is ASTM message')
+                    astm_msg = msg1
+                    ctrl_msg = msg2
+                elif astm.codec.is_chunked_message( msg2 ):
+                    logger.debug(' ## Second message is ASTM message')
+                    astm_msg = msg2
+                    ctrl_msg = msg1
+                else:
+                    logger.error('readDeviceInfo: Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ))
+                    raise RuntimeError( 'Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ) )
 
-            self.deviceInfo = astm.codec.decode( bytes( msg ) )
-            self.session.stickSerial = self.deviceSerial
-            self.checkControlMessage( ascii['ENQ'] )
+                #self.checkControlMessage( ascii['ENQ'] )
+                controlChar = ascii['ENQ']
+                if len( ctrl_msg ) > 0 and ctrl_msg[0] != controlChar:
+                    logger.error(' ### getDeviceInfo: Expected to get an 0x{0:x} control character, got message with length {1} and control char 0x{1:x}'.format( controlChar, len( ctrl_msg ), ctrl_msg[0] ))
+                    raise RuntimeError( 'Expected to get an 0x{0:x} control character, got message with length {1} and control char 0x{1:x}'.format( controlChar, len( ctrl_msg ), ctrl_msg[0] ) )
+                 
+                self.deviceInfo = astm.codec.decode( bytes( astm_msg ) )
+                self.session.stickSerial = self.deviceSerial
+                
+                break
 
-        except TimeoutException:
-            self.sendMessage( struct.pack( '>B', ascii['EOT'] ) )
-            self.checkControlMessage( ascii['ENQ'] )
-            self.getDeviceInfo()
+            except TimeoutException:
+                self.sendMessage( struct.pack( '>B', ascii['EOT'] ) )
+                #self.checkControlMessage( ascii['ENQ'] )
+                #self.getDeviceInfo()
 
     def checkControlMessage( self, controlChar ):
         msg = self.readMessage()
