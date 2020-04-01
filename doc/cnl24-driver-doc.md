@@ -12,16 +12,38 @@ This is an attempt to write some comprehensible documentation about the inner wo
 ### Open the USB device
     mt.openDevice()
 
+Just opens the HID communication device with the CNLs USB vendor and product ID
+
 ### Get device info (CNL serial number)
+
     mt.getDeviceInfo()
 
+* Send control character `'X' (0x58)`
+* Receive ASTM message containing CNL info
+* Receive control character `ENQ (0x05)`
+
 ### Enter CNL control mode
+
     mt.enterControlMode()
 
+* Send control character `NAK (0x15)`
+* Receive control character `EOT (0x04)`
+* Send control character `ENQ (0x05)`
+* Receive control character `ACK (0x06)`
+
 ### Enter CNL passthrough mode
+
     mt.enterPassthroughMode()
 
+* Send control character `'W|'`
+* Receive control character `ACK (0x06)`
+* Send control character `'Q|'`
+* Receive control character `ACK (0x06)`
+* Send control character `'1|'`
+* Receive control character `ACK (0x06)`
+
 ### Request open connection to pump
+
     mt.openConnection()
 
 ### Read info from pump (link and pump MAC)
@@ -51,23 +73,29 @@ This is an attempt to write some comprehensible documentation about the inner wo
 
 
 
+## Error handling
+
+TODO
+
+
+
 ## Notes
 
 #### Note [1]
 
-Information is requested from the pump via the following sequence of MiniMed messages:
+Information is requested from the pump via the following sequence of MiniMed messages. The message handler methods are implemented in the class `Medtronic600SeriesDriver`:
 
     send BayerBinaryMessage(0x12, ...)  # operation SEND_MESSAGE
-    receive BayerBinaryMessage(0x81)    # operation SEND_MESSAGE_RESPONSE
+    receive getBayerBinaryMessage(0x81) # operation SEND_MESSAGE_RESPONSE
     receive getBayerBinaryMessage(0x80) # operation RECEIVE_MESSAGE
 
 
 ​    
 #### Note [2]
 
-The sequence is implemented in the Android source in `medtronic/service/MedtronicCnlService.java`
-which calls the functions defined in `medtronic/MedtronicCnlReader.java`
-which calls the low level functions defined in `medtronic/message/ContourNextLinkMessage.java`
+The sequence is implemented in the Android source in [`medtronic/service/MedtronicCnlService.java`](https://github.com/pazaan/600SeriesAndroidUploader/blob/master/app/src/main/java/info/nightscout/android/medtronic/service/MedtronicCnlService.java)
+which calls the functions defined in [`medtronic/MedtronicCnlReader.java`](https://github.com/pazaan/600SeriesAndroidUploader/blob/master/app/src/main/java/info/nightscout/android/medtronic/MedtronicCnlReader.java)
+which calls the low level functions defined in [`medtronic/message/ContourNextLinkMessage.java`](https://github.com/pazaan/600SeriesAndroidUploader/blob/master/app/src/main/java/info/nightscout/android/medtronic/message/ContourNextLinkMessage.java)
 
 
 
@@ -76,3 +104,5 @@ which calls the low level functions defined in `medtronic/message/ContourNextLin
 [1] [Medtronic 600-series message structure](https://github.com/tidepool-org/uploader/blob/master/lib/drivers/medtronic600/docs/packetStructure.md)
 
 [2] [Original CNL2.4 Python diver](https://github.com/pazaan/decoding-contour-next-link)
+
+[3] [Android uploader](https://github.com/pazaan/600SeriesAndroidUploader)
