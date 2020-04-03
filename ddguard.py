@@ -34,6 +34,7 @@
 #    03/12/2019 - Adapt to modified library names
 #    03/12/2019 - Make Blynk uploader optional
 #    11/02/2020 - Add Blynk virtual pin for active insulin
+#    03/03/2020 - Improved robustness of CNL2.4 driver
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
@@ -71,7 +72,7 @@ import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.4.1"
+VERSION = "0.5"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
