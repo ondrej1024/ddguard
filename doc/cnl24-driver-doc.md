@@ -46,25 +46,46 @@ Just opens the HID communication device with the CNLs USB vendor and product ID
 
     mt.openConnection()
 
+Send a MiniMed message with operation `OPEN_CONNECTION (0x10)`
+
 ### Read info from pump (link and pump MAC)
+
     mt.readInfo()
 
+Send a MiniMed message with operation `READ_INFO (0x14)`
+
 ### Read link encryption key from pump
+
     mt.readLinkKey()
 
+Send a MiniMed message with operation `REQUEST_LINK_KEY (0x16)`
+
 ### Negotiate communication channel with pump
+
     mt.negotiateChannel()
 
+Send an NGP message with command `JOIN_NETWORK (0x03)` for all possible radio channels
+
 ### Begin Extended High Speed Mode Session 
+
     mt.beginEHSM()
 
+Send an NGP message with command `TRANSMIT_PACKET (0x05)` and command `0x0412` in payload
+
 ### Read pump time <sup>[1]</sup><sup>
+
     mt.getPumpTime()
 
+Send an NGP message with command `TRANSMIT_PACKET (0x05)` and command `0x0403` in payload
+
 ### Read pump status info (bat, sgv, iob, ...) <sup>[1]</sup><sup>
+
     mt.getPumpStatus()
 
+Send an NGP message with command `TRANSMIT_PACKET (0x05)` and command `0x0112` in payload
+
 ### Finish session
+
     mt.finishEHSM()
     mt.closeConnection()
     mt.exitPassthroughMode()
