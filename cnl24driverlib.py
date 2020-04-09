@@ -35,7 +35,7 @@ import hashlib
 import re
 import pickle # needed for local history export
 import lzo # pip install python-lzo
-#from .pump_history_parser import NGPHistoryEvent, BloodGlucoseReadingEvent
+#from pump_history_parser import NGPHistoryEvent, BloodGlucoseReadingEvent
 from helpers import DateTimeHelper
 
 logger = logging.getLogger(__name__)
@@ -1088,8 +1088,8 @@ class Medtronic600SeriesDriver( object ):
                     astm_msg = msg2
                     ctrl_msg = msg1
                 else:
-                    logger.error('readDeviceInfo: Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ))
-                    raise RuntimeError( 'Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ) )
+                    logger.error('readDeviceInfo: Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg1 ) ))
+                    raise RuntimeError( 'Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg1 ) ) )
 
                 controlChar = ascii['ENQ']
                 if len( ctrl_msg ) > 0 and ctrl_msg[0] != controlChar:
@@ -1414,7 +1414,8 @@ class Medtronic600SeriesDriver( object ):
             raise InvalidMessageError('Unknown history response message type')
         
         return decodedBlocks
-    
+    '''
+    # for next time.....
     def decodeEvents(self, decodedBlocks):
         eventList = []
         for page in decodedBlocks:
@@ -1426,7 +1427,7 @@ class Medtronic600SeriesDriver( object ):
                 pos += eventSize
                 eventList.extend(NGPHistoryEvent(eventData).eventInstance().allNestedEvents())
         return eventList
-                
+                    
     def processPumpHistory( self, historySegments, historyType = HISTORY_DATA_TYPE.PUMP_DATA):
         historyEvents = []
         for segment in historySegments:
@@ -1435,6 +1436,7 @@ class Medtronic600SeriesDriver( object ):
         for event in historyEvents:
             event.postProcess(historyEvents)
         return historyEvents
+    '''
 
     def getTempBasalStatus( self ):
         logger.info("# Get Temp Basal Status")
