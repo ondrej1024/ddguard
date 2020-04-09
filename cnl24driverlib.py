@@ -12,6 +12,7 @@
 #
 #  Changes:
 #    30/03/2020: Backport comms robustness improvements from Android uploader
+#    06/04/2020: Extract more sensor related data from pump status message
 #  
 ###############################################################################
 
@@ -566,6 +567,16 @@ class PumpStatusResponseMessage( MedtronicReceiveMessage ):
         return int( struct.unpack( '>I', self.responsePayload[0x2b:0x2f] )[0] ) / 10000
 
     @property
+    def insulinHoursRemaining( self ):
+         # NOTE: does not seem to be set by the pump (is 0xFF)
+        return int( struct.unpack( '>B', self.responsePayload[0x2f:0x30] )[0] )
+
+    @property
+    def insulinMinutesRemaining( self ):
+         # NOTE: does not seem to be set by the pump (is 0xFF)
+        return int( struct.unpack( '>B', self.responsePayload[0x30:0x31] )[0] )
+
+    @property
     def activeInsulin( self ):
         return float( struct.unpack( '>H', self.responsePayload[51:53] )[0] ) / 10000
 
@@ -608,6 +619,28 @@ class PumpStatusResponseMessage( MedtronicReceiveMessage ):
     @property
     def bolusWizardBGL( self ):
         return struct.unpack( '>H', self.responsePayload[73:75] )[0]
+
+    @property
+    def lastBolusAmount( self ):
+        return float( struct.unpack( '>I', self.responsePayload[0x10:0x14] )[0] ) / 10000
+
+    @property
+    def lastBolusTime( self ):
+        dateTimeData = struct.unpack( '>L', self.responsePayload[0x14:0x18] )[0]
+        return DateTimeHelper.decodeDateTime( dateTimeData, 0 )
+
+    @property
+    def sensorCalMinutesRemaining( self ):
+        return int( struct.unpack( '>H', self.responsePayload[0x43:0x45] )[0] )
+
+    @property
+    def sensorBatteryLevelPercentage( self ):
+        sbatt_raw = int( struct.unpack( '>B', self.responsePayload[0x45:0x46] )[0] )
+        return int(round(((sbatt_raw & 0x0F) * 100.0) / 15.0))
+
+    @property
+    def sensorRateOfChange( self ):
+        return float( struct.unpack( '>h', self.responsePayload[0x46:0x48] )[0] ) / 100
 
 class BeginEHSMMessage( MedtronicSendMessage ):
     def __init__( self, session ):
@@ -1530,19 +1563,30 @@ def statusDownload(mt):
              status.sensorBGL / 18.016,
              status.sensorBGLTimestamp.strftime( "%c" ) ))
     print ("BGL trend: {0}".format( status.trendArrow ))
+   
     print ("Current basal rate: {0:.3f}U".format( status.currentBasalRate ))
     print ("Temp basal rate: {0:.3f}U".format( status.tempBasalRate ))
     print ("Temp basal percentage: {0}%".format( status.tempBasalPercentage ))
-    print ("Units remaining: {0:.3f}U".format( status.insulinUnitsRemaining ))
+    print ("Units remaining: {0}U ({1:02d}:{2:02d}h)".format( status.insulinUnitsRemaining, status.insulinHoursRemaining, status.insulinMinutesRemaining ))
     print ("Battery remaining: {0}%".format( status.batteryLevelPercentage ))
+
+    print ("Last bolus: {0:.1f}U at {1}".format( status.lastBolusAmount, status.lastBolusTime.strftime( "%c" ) ))
+    print ("Time until next sensor calibration {0:02d}:{1:02d}h".format( status.sensorCalMinutesRemaining/60, status.sensorCalMinutesRemaining%60 ))
+    print ("Sensor battery remaining: {0}%".format( status.sensorBatteryLevelPercentage ))
+    print ("Sensor rate of change: {0}".format( status.sensorRateOfChange ))
     
     result = {"serial":mt.deviceSerial,
               "actins":status.activeInsulin, 
-              "bgl":status.sensorBGL, # if status.sensorBGL>0 else None,
+              "bgl":status.sensorBGL,
               "time":status.sensorBGLTimestamp,
               "trend":status.trendArrow,
               "unit":status.insulinUnitsRemaining,
-              "batt":status.batteryLevelPercentage
+              "batt":status.batteryLevelPercentage,
+              "lbol":status.lastBolusAmount,
+              "lbolt":status.lastBolusTime,
+              "sctime":status.sensorCalMinutesRemaining,
+              "sbatt":status.sensorBatteryLevelPercentage,
+              "srate":status.sensorRateOfChange
              }
     
     return result
