@@ -35,6 +35,7 @@
 #    03/12/2019 - Make Blynk uploader optional
 #    11/02/2020 - Add Blynk virtual pin for active insulin
 #    03/03/2020 - Improved robustness of CNL2.4 driver
+#    14/04/2020 - Adapt to new data format from CNL driver
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
@@ -72,7 +73,7 @@ import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.5"
+VERSION = "0.5.1"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -198,45 +199,45 @@ def blynk_upload(data):
       print "Uploading data to Blynk"
        
       # Send sensor data
-      if data["bgl"] in sensor_exception_codes:
+      if data["sensorBGL"] in sensor_exception_codes:
          # Special status code
          blynk.virtual_write(VPIN_SENSOR, None)
          blynk.virtual_write(VPIN_ARROWS, "--")
-         blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[data["bgl"]])
+         blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[data["sensorBGL"]])
          blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
       else:
          # Regular BGL data
-         blynk.virtual_write(VPIN_SENSOR, data["bgl"])
-         if data["bgl"] < read_config.bgl_low_val:
+         blynk.virtual_write(VPIN_SENSOR, data["sensorBGL"])
+         if data["sensorBGL"] < read_config.bgl_low_val:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
-         elif data["bgl"] < read_config.bgl_pre_low_val:
+         elif data["sensorBGL"] < read_config.bgl_pre_low_val:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-         elif data["bgl"] < read_config.bgl_pre_high_val:
+         elif data["sensorBGL"] < read_config.bgl_pre_high_val:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
-         elif data["bgl"] < read_config.bgl_high_val:
+         elif data["sensorBGL"] < read_config.bgl_high_val:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
          else:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
-         blynk.virtual_write(VPIN_ARROWS, str(data["trend"])+" / "+str(data["actins"]))
-         blynk.virtual_write(VPIN_STATUS, "Last update "+str(data["time"]).split(' ')[1].split('.')[0])
+         blynk.virtual_write(VPIN_ARROWS, str(data["trendArrow"])+" / "+str(data["activeInsulin"]))
+         blynk.virtual_write(VPIN_STATUS, "Last update "+str(data["sensorBGLTimestamp"]).split(' ')[1].split('.')[0])
          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
        
       # Send pump data
-      blynk.virtual_write(VPIN_BATTERY, data["batt"])
-      if data["batt"] <= 25:
+      blynk.virtual_write(VPIN_BATTERY, data["batteryLevelPercentage"])
+      if data["batteryLevelPercentage"] <= 25:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
-      elif data["batt"] <= 50:
+      elif data["batteryLevelPercentage"] <= 50:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
       else:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
-      blynk.virtual_write(VPIN_UNITS,   data["unit"])
-      if data["unit"] <= 25:
+      blynk.virtual_write(VPIN_UNITS,   data["insulinUnitsRemaining"])
+      if data["insulinUnitsRemaining"] <= 25:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
-      elif data["unit"] <= 75:
+      elif data["insulinUnitsRemaining"] <= 75:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
       else:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
-      blynk.virtual_write(VPIN_ACTINS,   data["actins"])
+      blynk.virtual_write(VPIN_ACTINS,   data["activeInsulin"])
    else:
       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
