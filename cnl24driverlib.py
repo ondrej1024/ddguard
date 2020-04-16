@@ -27,15 +27,15 @@ except WindowsError:
 import astm # pip install astm
 import struct
 import binascii
-import datetime
+#import datetime
 import crc16 # pip install crc16
 import Crypto.Cipher.AES # pip install PyCrypto
 import sqlite3
 import hashlib
 import re
-import pickle # needed for local history export
+#import pickle # needed for local history export
 import lzo # pip install python-lzo
-#from .pump_history_parser import NGPHistoryEvent, BloodGlucoseReadingEvent
+from .pump_history_parser import NGPHistoryEvent, BloodGlucoseReadingEvent
 from helpers import DateTimeHelper
 
 logger = logging.getLogger(__name__)
@@ -234,7 +234,7 @@ class MedtronicSession( object ):
     def IV( self ):
         tmp = bytearray()
         tmp.append(self.radioChannel)
-        tmp += self.KEY[1:]        
+        tmp += self.KEY[1:]
         return bytes(tmp)
 
 class MedtronicMessage( object ):
@@ -297,7 +297,7 @@ class MedtronicMessage( object ):
         response.session = session
         response.envelope = message[0:2]
         response.payload = message[2:-2]
-        response.originalMessage = message;
+        response.originalMessage = message
 
         checksum = struct.unpack( '<H', message[-2:] )[0]
         calcChecksum = MedtronicMessage.calculateCcitt( response.envelope + response.payload )
@@ -336,13 +336,13 @@ class MedtronicSendMessage( MedtronicMessage ):
         encryptedPayload += struct.pack( '>H', crc & 0xffff )
         #logger.debug("### PAYLOAD")
         #logger.debug(binascii.hexlify( encryptedPayload ))
-        
+
         mmPayload = struct.pack( '<QBBB',
             self.session.pumpMAC,
             self.session.minimedSequenceNumber,
             0x11, # Mode flags
             len( encryptedPayload )
-        )        
+        )
         mmPayload += self.encrypt( encryptedPayload )
 
         self.setPayload( mmPayload )
@@ -352,9 +352,9 @@ class MedtronicReceiveMessage( MedtronicMessage ):
     @classmethod
     def decode( cls, message, session ):
         response = MedtronicMessage.decode( message, session )
-       
+
         # TODO - check validity of the envelope
-        response.responseEnvelope = response.payload[0:22] 
+        response.responseEnvelope = response.payload[0:22]
         decryptedResponsePayload = response.decrypt( bytes(response.payload[22:]) )
 
         response.responsePayload = decryptedResponsePayload[0:-2]
@@ -369,7 +369,7 @@ class MedtronicReceiveMessage( MedtronicMessage ):
                 raise ChecksumException( 'Expected to get {0}. Got {1}'.format( calcChecksum, checksum ) )
 
         response.__class__ = MedtronicReceiveMessage
-        
+
         if response.messageType == COM_D_COMMAND.TIME_RESPONSE:
             response.__class__ = PumpTimeResponseMessage
         elif response.messageType == COM_D_COMMAND.READ_HISTORY_INFO_RESPONSE:
@@ -382,7 +382,7 @@ class MedtronicReceiveMessage( MedtronicMessage ):
             response.__class__ = MultiPacketSegment
         elif response.messageType == COM_D_COMMAND.END_HISTORY_TRANSMISSION:
             response.__class__ = MultiPacketSegment
-        
+
         return response
 
     @property
@@ -418,7 +418,7 @@ class ReadLinkKeyResponseMessage( object ):
     def linkKey( self, serialNumber ):
         key = bytearray(b"")
         pos = ord_hack( serialNumber[-1:] ) & 7
-        
+
         for it in range(16):
             if ( ord_hack( self.packedLinkKey[pos + 1] ) & 1) == 1:
                 key.append(~ord_hack( self.packedLinkKey[pos] ) & 0xff)
@@ -477,14 +477,14 @@ class PumpHistoryInfoResponseMessage( MedtronicReceiveMessage ):
     @property
     def historySize( self ):
         return struct.unpack( '>I', self.responsePayload[4:8] )[0]
-    
+
     @property
     def encodedDatetimeStart( self ):
         return struct.unpack( '>Q', self.responsePayload[8:16] )[0]
 
     @property
     def encodedDatetimeEnd( self ):
-        return struct.unpack( '>Q', self.responsePayload[16:24] )[0]    
+        return struct.unpack( '>Q', self.responsePayload[16:24] )[0]
 
     @property
     def datetimeStart( self ):
@@ -507,7 +507,7 @@ class MultiPacketSegment( MedtronicReceiveMessage ):
     @property
     def packetNumber( self ):
         return struct.unpack( '>H', self.responsePayload[3:5] )[0]
-    
+
     @property
     def payload( self ):
         return self.responsePayload[5:]
@@ -542,13 +542,99 @@ class PumpStatusResponseMessage( MedtronicReceiveMessage ):
         response.__class__ = PumpStatusResponseMessage
         return response
 
+    # see https://github.com/pazaan/600SeriesAndroidUploader/blob/master/app/src/main/java/info/nightscout/android/medtronic/message/PumpStatusResponseMessage.java
+
+    @property
+    def isPumpStatusSuspended( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x03:0x04] )[0] )  & 0x01 :
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPumpStatusBolusingNormal( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x03:0x04] )[0] )  & 0x02 :
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPumpStatusBolusingSquare( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x03:0x04] )[0] )  & 0x04 :
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPumpStatusBolusingDual( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x03:0x04] )[0] )  & 0x08 :
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPumpStatusDeliveringInsulin( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x03:0x04] )[0] )  & 0x10 :
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPumpStatusTempBasalActive( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x03:0x04] )[0] )  & 0x20 :
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPumpStatusCgmActive( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x03:0x04] )[0] )  & 0x40 :
+            return 1
+        else:
+            return 0
+
+    @property
+    def bolusingDelivered( self ):
+        return float( struct.unpack( '>I', self.responsePayload[0x04:0x08] )[0] ) / 10000
+
+    @property
+    def bolusingMinutesRemaining( self ):
+        return int( struct.unpack( '>H', self.responsePayload[0x0c:0x0e] )[0] )
+
+    @property
+    def bolusingReference( self ):
+        return int( struct.unpack( '>B', self.responsePayload[0x0e:0x0f] )[0] )
+
+
+    @property
+    def lastBolusAmount(self):
+        return float(struct.unpack('>I', self.responsePayload[0x10:0x14])[0]) / 10000
+
+
+    @property
+    def lastBolusTime(self):
+        dateTimeData = struct.unpack('>L', self.responsePayload[0x14:0x18])[0]
+        return DateTimeHelper.decodeDateTime(dateTimeData, 0)
+
+    @property
+    def lastBolusReference( self ):
+        return int( struct.unpack( '>B', self.responsePayload[0x18:0x19] )[0] )
+
+    @property
+    def activeBasalPattern( self ):
+        return int( struct.unpack( '>B', self.responsePayload[0x1a:0x1b] )[0] ) & 0x0F
+
+    @property
+    def activeTempBasalPattern( self ):
+        return int( (struct.unpack( '>B', self.responsePayload[0x1a:0x1b] )[0] ) >> 4 ) & 0x0F
+
     @property
     def currentBasalRate( self ):
         return float( struct.unpack( '>I', self.responsePayload[0x1b:0x1f] )[0] ) / 10000
 
     @property
     def tempBasalRate( self ):
-        return float( struct.unpack( '>H', self.responsePayload[0x21:0x23] )[0] ) / 10000
+        return float( struct.unpack( '>I', self.responsePayload[0x1f:0x23] )[0] ) / 10000
 
     @property
     def tempBasalPercentage( self ):
@@ -559,30 +645,76 @@ class PumpStatusResponseMessage( MedtronicReceiveMessage ):
         return int( struct.unpack( '>H', self.responsePayload[0x24:0x26] )[0] )
 
     @property
+    def basalUnitsDeliveredToday( self ):
+        return float( struct.unpack( '>I', self.responsePayload[0x26:0x2a] )[0] ) / 10000
+
+    @property
     def batteryLevelPercentage( self ):
         return int( struct.unpack( '>B', self.responsePayload[0x2a:0x2b] )[0] )
 
     @property
     def insulinUnitsRemaining( self ):
-        return int( struct.unpack( '>I', self.responsePayload[0x2b:0x2f] )[0] ) / 10000
+        return float( struct.unpack( '>I', self.responsePayload[0x2b:0x2f] )[0] ) / 10000
 
     @property
-    def insulinHoursRemaining( self ):
-         # NOTE: does not seem to be set by the pump (is 0xFF)
-        return int( struct.unpack( '>B', self.responsePayload[0x2f:0x30] )[0] )
-
-    @property
-    def insulinMinutesRemaining( self ):
-         # NOTE: does not seem to be set by the pump (is 0xFF)
-        return int( struct.unpack( '>B', self.responsePayload[0x30:0x31] )[0] )
+    def minutesOfInsulinRemaining( self ):
+        Hours = int(struct.unpack('>B', self.responsePayload[0x2f:0x30])[0])
+        Minutes = int( struct.unpack( '>B', self.responsePayload[0x30:0x31] )[0] )
+        return int ((Hours * 60) + Minutes)
 
     @property
     def activeInsulin( self ):
-        return float( struct.unpack( '>H', self.responsePayload[51:53] )[0] ) / 10000
+        return float( struct.unpack( '>I', self.responsePayload[0x31:0x35] )[0] ) / 10000
 
     @property
     def sensorBGL( self ):
-        return int( struct.unpack( '>H', self.responsePayload[53:55] )[0] )
+        # // In mg/DL. 0x0000 = no CGM reading, 0x03NN = sensor exception
+        return int( struct.unpack( '>H', self.responsePayload[0x35:0x37] )[0] )
+
+    @property
+    def sensorBGLTimestamp( self ):
+        dateTimeData = struct.unpack( '>Q', self.responsePayload[0x37:0x3f] )[0]
+        return DateTimeHelper.decodeDateTime( dateTimeData )
+
+    @property
+    def isPlgmAlertOnHigh(self):
+        if (struct.unpack('>B', self.responsePayload[0x3f:0x40])[0]) & 0x01:
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPlgmAlertOnLow(self):
+        if (struct.unpack('>B', self.responsePayload[0x3f:0x40])[0]) & 0x02:
+            return 1
+        else:
+            return 0
+
+    @property
+    def isPlgmAlertBeforeHigh(self):
+        if (struct.unpack('>B', self.responsePayload[0x3f:0x40])[0]) & 0x04:
+            return 1
+        else:
+            return 0
+    @property
+    def isPlgmAlertBeforeLow(self):
+        if (struct.unpack('>B', self.responsePayload[0x3f:0x40])[0]) & 0x08:
+            return 1
+        else:
+            return 0
+    @property
+    def isPlgmAlertSuspend(self):
+        if (struct.unpack('>B', self.responsePayload[0x3f:0x40])[0]) & 0x80:
+            return 1
+        else:
+            return 0
+    @property
+    def islgmAlertSuspendLow(self):
+        # needs discovery confirmation!
+        if (struct.unpack('>B', self.responsePayload[0x3f:0x40])[0]) & 0x10:
+            return 1
+        else:
+            return 0
 
     @property
     def trendArrow( self ):
@@ -605,29 +737,26 @@ class PumpStatusResponseMessage( MedtronicReceiveMessage ):
             return None #"Unknown trend"
 
     @property
-    def sensorBGLTimestamp( self ):
-        dateTimeData = struct.unpack( '>Q', self.responsePayload[55:63] )[0]
-        return DateTimeHelper.decodeDateTime( dateTimeData )
-
-    @property
-    def recentBolusWizard( self ):
-        if self.responsePayload[72] == 0:
-            return False
+    def isSensorStatusCalibrating( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x41:0x42] )[0] )  & 0x01 :
+            return 1
         else:
-            return True
+            return 0
 
     @property
-    def bolusWizardBGL( self ):
-        return struct.unpack( '>H', self.responsePayload[73:75] )[0]
+    def isSensorStatusCalibrationComplete( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x41:0x42] )[0] )  & 0x02 :
+            return 1
+        else:
+            return 0
 
     @property
-    def lastBolusAmount( self ):
-        return float( struct.unpack( '>I', self.responsePayload[0x10:0x14] )[0] ) / 10000
+    def isSensorStatusException( self ):
+        if ( struct.unpack( '>B', self.responsePayload[0x41:0x42] )[0] )  & 0x04 :
+            return 1
+        else:
+            return 0
 
-    @property
-    def lastBolusTime( self ):
-        dateTimeData = struct.unpack( '>L', self.responsePayload[0x14:0x18] )[0]
-        return DateTimeHelper.decodeDateTime( dateTimeData, 0 )
 
     @property
     def sensorCalMinutesRemaining( self ):
@@ -641,6 +770,56 @@ class PumpStatusResponseMessage( MedtronicReceiveMessage ):
     @property
     def sensorRateOfChange( self ):
         return float( struct.unpack( '>h', self.responsePayload[0x46:0x48] )[0] ) / 100
+
+    @property
+    def recentBolusWizard( self ):
+        # Bitfield of the Bolus Wizard status. 0x01 if the Bolus Wizard has been used in the last 15 minutes
+        if self.responsePayload[0x48] == 0:
+            return 0
+        else:
+            return 1
+
+    @property
+    def recentBGL( self ):
+        # Blood Glucose Level entered into the Bolus Wizard, in mg/dL
+        return struct.unpack( '>H', self.responsePayload[0x49:0x4b] )[0]
+
+    #Active alert
+    @property
+    def alert( self ):
+        return struct.unpack( '>H', self.responsePayload[0x4b:0x4d] )[0]
+
+    @property
+    def alertDate( self ):
+        dateTimeData = struct.unpack( '>Q', self.responsePayload[0x4d:0x55] )[0]
+        return DateTimeHelper.decodeDateTime( dateTimeData )
+
+    @property
+    def isAlertSilenceHigh(self):
+        if (struct.unpack('>B', self.responsePayload[0x55:0x56])[0]) & 0x01:
+            return 1
+        else:
+            return 0
+    @property
+
+    def isAlertSilenceHighLow(self):
+        if (struct.unpack('>B', self.responsePayload[0x55:0x56])[0]) & 0x02:
+            return 1
+        else:
+            return 0
+
+    @property
+    def isAlertSilenceAll(self):
+        if (struct.unpack('>B', self.responsePayload[0x55:0x56])[0]) & 0x04:
+            return 1
+        else:
+            return 0
+
+    @property
+    def alertSilenceMinutesRemaining(self):
+        return struct.unpack( '>H', self.responsePayload[0x56:0x58] )[0]
+
+##############################
 
 class BeginEHSMMessage( MedtronicSendMessage ):
     def __init__( self, session ):
@@ -679,11 +858,11 @@ class PumpHistoryRequestMessage( MedtronicSendMessage ):
 class AckMultipacketRequestMessage( MedtronicSendMessage ):
     SEGMENT_COMMAND__INITIATE_TRANSFER = COM_D_COMMAND.INITIATE_MULTIPACKET_TRANSFER
     SEGMENT_COMMAND__SEND_NEXT_SEGMENT = COM_D_COMMAND.MULTIPACKET_SEGMENT_TRANSMISSION
-    
+
     def __init__( self, session, segmentCommand ):
         payload = struct.pack( '>H', segmentCommand )
         MedtronicSendMessage.__init__( self, COM_D_COMMAND.ACK_MULTIPACKET_COMMAND, session, payload )
-    
+
 class BasicNgpParametersRequestMessage( MedtronicSendMessage ):
     def __init__( self, session ):
         MedtronicSendMessage.__init__( self, COM_D_COMMAND.NGP_PARAMETER_REQUEST, session )
@@ -766,12 +945,12 @@ class BayerBinaryMessage( object ):
             raise ChecksumException( 'Expected to get {0}. Got {1}'.format( calcChecksum, checksum ) )
 
         return response
-    
+
     @property
     def linkDeviceOperation( self ):
         return ord_hack(self.envelope[18])
 
-    # HACK: This is just a debug try, session param shall not be there    
+    # HACK: This is just a debug try, session param shall not be there
     def checkLinkDeviceOperation( self, expectedValue, session = None ):
         if self.linkDeviceOperation != expectedValue:
             logger.debug("### checkLinkDeviceOperation BayerBinaryMessage.envelope: {0}".format(binascii.hexlify(self.envelope)))
@@ -787,7 +966,7 @@ class Medtronic600SeriesDriver( object ):
     USB_VID = 0x1a79
     USB_PID = 0x6210
     MAGIC_HEADER = b'ABC'
-    
+
     ERROR_CLEAR_TIMEOUT_MS   = 25000
     PRESEND_CLEAR_TIMEOUT_MS = 50
     READ_TIMEOUT_MS          = 10000
@@ -812,7 +991,7 @@ class Medtronic600SeriesDriver( object ):
         logger.info("Manufacturer: %s" % self.device.get_manufacturer_string())
         logger.info("Product: %s" % self.device.get_product_string())
         logger.info("Serial No: %s" % self.device.get_serial_number_string())
-    
+
     def closeDevice( self ):
         logger.info("# Closing device")
         self.device.close()
@@ -823,7 +1002,7 @@ class Medtronic600SeriesDriver( object ):
         payloadSize = 0
         expectedSize = 0
         first = True
-        
+
         while first or (bytesRead > 0 and payloadSize == self.USB_BLOCKSIZE-4 and len(payload) != expectedSize):
             t = timeout_ms if first else 10000
             data = self.device.read( self.USB_BLOCKSIZE, timeout_ms = t )
@@ -839,7 +1018,7 @@ class Medtronic600SeriesDriver( object ):
                 # get the expected size for 0x80 or 0x81 messages as they may be on a block boundary
                 if expectedSize == 0 and data[3] >= 0x21  and ((data[0x12 + 4] & 0xFF == 0x80) or (data[0x12 + 4] & 0xFF == 0x81)):
                     expectedSize = 0x21 + ((data[0x1C + 4] & 0x00FF) | (data[0x1D + 4] << 8 & 0xFF00))
-               
+
                 logger.debug('READ: bytesRead={0}, payloadSize={1}, expectedSize={2}'.format(bytesRead, payloadSize, expectedSize))
 
             else:
@@ -850,10 +1029,10 @@ class Medtronic600SeriesDriver( object ):
         return payload
 
     def sendMessage( self, payload ):
-        
+
         # Clear any message in the receive buffer
         self.clearMessage(timeout_ms=self.PRESEND_CLEAR_TIMEOUT_MS)
-        
+
         # Split the message into 60 byte chunks
         for packet in [ payload[ i: i+60 ] for i in range( 0, len( payload ), 60 ) ]:
             message = struct.pack( '>3sB', self.MAGIC_HEADER, len( packet ) ) + packet
@@ -876,9 +1055,9 @@ class Medtronic600SeriesDriver( object ):
     # which will get caught using the post-clear method as fail-safe
 
     def clearMessage(self, timeout_ms=ERROR_CLEAR_TIMEOUT_MS):
-       
+
         logger.debug("## CLEAR: timeout={0}".format(timeout_ms))
-        
+
         count = 0
         cleared = False
 
@@ -916,11 +1095,11 @@ class Medtronic600SeriesDriver( object ):
            logger.warning("## CLEAR: message stream cleared " + str(count) + " messages.")
 
         return count
-    
+
     def readResponse0x80(self):
-       
+
         logger.debug("## readResponse0x80")
-        
+
         payload = self.readMessage()
 
         # minimum 0x80 message size?
@@ -992,13 +1171,13 @@ class Medtronic600SeriesDriver( object ):
                 # stream is always clear after this message
                 # do not retry, end the session
                 raise UnexpectedMessageException("connection lost")
-     
+
         return BayerBinaryMessage.decode(payload)
-    
+
     def readResponse0x81(self):
 
         logger.debug("## readResponse0x81")
-        
+
         try:
             # an 0x81 response is always expected after sending a request
             # keep reading until we get it or timeout
@@ -1011,7 +1190,7 @@ class Medtronic600SeriesDriver( object ):
                     logger.warning("## readResponse0x81: message not a 0x81, got a 0x{0:x}".format(payload[0x12]))
                 else:
                     break
-        
+
         except TimeoutException:                       # Timeout in readMessage()
             # ugh... there should always be a CNL 0x81 response and if we don't get one
             # it usually ends with a E86 / E81 error on the CNL needing a unplug/plug cycle
@@ -1026,13 +1205,13 @@ class Medtronic600SeriesDriver( object ):
             self.clearMessage()
             # do not retry, end the session
             raise UnexpectedMessageException("0x81 response was empty, connection lost")
-        
+
         # message and internal payload size correct?
         elif len(payload) != (0x21 + payload[0x1C] & 0x00FF | payload[0x1D] << 8 & 0xFF00):
             logger.error("readResponse0x81: message size mismatch")
             self.clearMessage()
             raise UnexpectedMessageException("0x81 response message size mismatch")
-        
+
         # internal 0x55 payload?
         elif payload[0x21] != 0x55:
             logger.error("readResponse0x81: message no internal 0x55")
@@ -1046,12 +1225,12 @@ class Medtronic600SeriesDriver( object ):
         if len(payload) == 0x30:
             if payload[0x2D] == 0x04:
                 logger.warning("## readResponse0x81: message [0x2D]==0x04 (noisy/busy)")
-            
+
             elif payload[0x2D] != 0x02:
                 logger.error("readResponse0x81: message [0x2D]!=0x02 (unknown state)")
                 self.clearMessage()
                 raise UnexpectedMessageException("0x81 unknown state flag")
-            
+
         # connection
         elif len(payload) == 0x27 and payload[0x23] == 0x00 and payload[0x24] == 0x00:
             logger.warning("## readResponse0x81: message containing '55 04 00 00' (network not connected)")
@@ -1075,7 +1254,7 @@ class Medtronic600SeriesDriver( object ):
             try:
                 logger.debug(' ## Read first message')
                 msg1 = self.readMessage()
-                
+
                 logger.debug(' ## Read second message')
                 msg2 = self.readMessage()
 
@@ -1088,17 +1267,17 @@ class Medtronic600SeriesDriver( object ):
                     astm_msg = msg2
                     ctrl_msg = msg1
                 else:
-                    logger.error('readDeviceInfo: Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ))
-                    raise RuntimeError( 'Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg ) ) )
+                    logger.error('readDeviceInfo: Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg1 ) ))
+                    raise RuntimeError( 'Expected to get an ASTM message, but got {0} instead'.format( binascii.hexlify( msg1 ) ) )
 
                 controlChar = ascii['ENQ']
                 if len( ctrl_msg ) > 0 and ctrl_msg[0] != controlChar:
                     logger.error(' ### getDeviceInfo: Expected to get an 0x{0:x} control character, got message with length {1} and control char 0x{1:x}'.format( controlChar, len( ctrl_msg ), ctrl_msg[0] ))
                     raise RuntimeError( 'Expected to get an 0x{0:x} control character, got message with length {1} and control char 0x{1:x}'.format( controlChar, len( ctrl_msg ), ctrl_msg[0] ) )
-                 
+
                 self.deviceInfo = astm.codec.decode( bytes( astm_msg ) )
                 self.session.stickSerial = self.deviceSerial
-                
+
                 break
 
             except TimeoutException:
@@ -1222,7 +1401,7 @@ class Medtronic600SeriesDriver( object ):
         logger.info("# Finish Extended High Speed Mode Session")
         try:
             mtMessage = FinishEHSMMessage( self.session )
-    
+
             bayerMessage = BayerBinaryMessage( 0x12, self.session, mtMessage.encode() )
             self.sendMessage( bayerMessage.encode() )
             try:
@@ -1300,7 +1479,7 @@ class Medtronic600SeriesDriver( object ):
         transmissionCompleted = False
         while transmissionCompleted != True:
             responseSegment = self.getMedtronicMessage([COM_D_COMMAND.HIGH_SPEED_MODE_COMMAND, COM_D_COMMAND.INITIATE_MULTIPACKET_TRANSFER, COM_D_COMMAND.MULTIPACKET_SEGMENT_TRANSMISSION, COM_D_COMMAND.END_HISTORY_TRANSMISSION])
-                            
+
             if responseSegment.messageType == COM_D_COMMAND.HIGH_SPEED_MODE_COMMAND:
                 logger.debug("## getPumpHistory consumed HIGH_SPEED_MODE_COMMAND")
                 pass
@@ -1335,12 +1514,12 @@ class Medtronic600SeriesDriver( object ):
                     packets[responseSegment.packetNumber] = responseSegment.payload
                 else:
                     logger.warning("## WARNING - packet duplicated")
-                    
+
                 if numPackets == segmentParams.packetsToFetch:
                     logger.debug("## All packets there")
                     logger.debug("## Requesting next segment")
                     allSegments.append(packets)
-                    
+
                     #request next segment
                     ackMessage = AckMultipacketRequestMessage(self.session, AckMultipacketRequestMessage.SEGMENT_COMMAND__SEND_NEXT_SEGMENT)
                     bayerAckMessage = BayerBinaryMessage( 0x12, self.session, ackMessage.encode() )
@@ -1349,7 +1528,7 @@ class Medtronic600SeriesDriver( object ):
             elif responseSegment.messageType == COM_D_COMMAND.END_HISTORY_TRANSMISSION:
                 logger.debug("## getPumpHistory got END_HISTORY_TRANSMISSION")
                 transmissionCompleted = True
-            else:          
+            else:
                 logger.warning("## getPumpHistory !!! UNKNOWN MESSAGE !!!")
                 logger.warning("## getPumpHistory response.messageType: {0:x}".format(responseSegment.messageType))
 
@@ -1358,14 +1537,14 @@ class Medtronic600SeriesDriver( object ):
         else:
             logger.error("Transmission finished, but END_HISTORY_TRANSMISSION did not arrive")
             raise DataIncompleteError("Transmission finished, but END_HISTORY_TRANSMISSION did not arrive")
-        
+
     def decodePumpSegment(self, encodedFragmentedSegment, historyType = HISTORY_DATA_TYPE.PUMP_DATA):
         decodedBlocks = []
         segmentPayload = encodedFragmentedSegment[0]
-        
-        for idx in range(1, len(encodedFragmentedSegment)):        
-            segmentPayload+= encodedFragmentedSegment[idx]        
-        
+
+        for idx in range(1, len(encodedFragmentedSegment)):
+            segmentPayload+= encodedFragmentedSegment[idx]
+
         # Decompress the message
         if struct.unpack( '>H', segmentPayload[0:2])[0] == 0x030E:
             HEADER_SIZE = 12
@@ -1380,7 +1559,7 @@ class Medtronic600SeriesDriver( object ):
             logger.debug("IsCompressed: {0}".format(historyCompressed))
 
             if dataType != historyType: # Check HISTORY_DATA_TYPE (PUMP_DATA: 2, SENSOR_DATA: 3)
-                logger.error('History type in response: {0} {1}'.format(type(dataType), dataType)) 
+                logger.error('History type in response: {0} {1}'.format(type(dataType), dataType))
                 raise InvalidMessageError('Unexpected history type in response')
 
             # Check that we have the correct number of bytes in this message
@@ -1412,21 +1591,22 @@ class Medtronic600SeriesDriver( object ):
                     decodedBlocks.append(blockData) 
         else:
             raise InvalidMessageError('Unknown history response message type')
-        
+
         return decodedBlocks
-    
+
+    # for next time.....
     def decodeEvents(self, decodedBlocks):
         eventList = []
         for page in decodedBlocks:
             pos = 0;
-    
+
             while pos < len(page):
                 eventSize = struct.unpack('>B', page[pos + 2 : pos + 3])[0] # page[pos + 2];
                 eventData = page[pos : pos + eventSize] # page.slice(pos, pos + eventSize);
                 pos += eventSize
                 eventList.extend(NGPHistoryEvent(eventData).eventInstance().allNestedEvents())
         return eventList
-                
+
     def processPumpHistory( self, historySegments, historyType = HISTORY_DATA_TYPE.PUMP_DATA):
         historyEvents = []
         for segment in historySegments:
@@ -1435,6 +1615,7 @@ class Medtronic600SeriesDriver( object ):
         for event in historyEvents:
             event.postProcess(historyEvents)
         return historyEvents
+
 
     def getTempBasalStatus( self ):
         logger.info("# Get Temp Basal Status")
@@ -1515,7 +1696,7 @@ def downloadPumpSession(downloadOperations):
     except:
         logger.error("downloadPumpSession: Cannot open USB device. Abandoning")
         return None
-        
+
     try:
         mt.getDeviceInfo()
         logger.info("Device serial: {0}".format(mt.deviceSerial))
@@ -1533,7 +1714,7 @@ def downloadPumpSession(downloadOperations):
                         logger.error("downloadPumpSession: Cannot connect to the pump. Abandoning")
                         raise
                     mt.beginEHSM()
-                    try:    
+                    try:
                         # We need to read always the pump time to store the offset for later messeging
                         mt.getPumpTime()
                         try:
@@ -1551,7 +1732,7 @@ def downloadPumpSession(downloadOperations):
             mt.exitControlMode()
     finally:
         mt.closeDevice()
-        
+
     return pumpData
 
 def statusDownload(mt):
@@ -1563,7 +1744,7 @@ def statusDownload(mt):
              status.sensorBGL / 18.016,
              status.sensorBGLTimestamp.strftime( "%c" ) ))
     print ("BGL trend: {0}".format( status.trendArrow ))
-   
+
     print ("Current basal rate: {0:.3f}U".format( status.currentBasalRate ))
     print ("Temp basal rate: {0:.3f}U".format( status.tempBasalRate ))
     print ("Temp basal percentage: {0}%".format( status.tempBasalPercentage ))
@@ -1574,7 +1755,7 @@ def statusDownload(mt):
     print ("Time until next sensor calibration {0:02d}:{1:02d}h".format( status.sensorCalMinutesRemaining/60, status.sensorCalMinutesRemaining%60 ))
     print ("Sensor battery remaining: {0}%".format( status.sensorBatteryLevelPercentage ))
     print ("Sensor rate of change: {0}".format( status.sensorRateOfChange ))
-    
+
     result = {"serial":mt.deviceSerial,
               "actins":status.activeInsulin, 
               "bgl":status.sensorBGL,
@@ -1588,7 +1769,7 @@ def statusDownload(mt):
               "sbatt":status.sensorBatteryLevelPercentage,
               "srate":status.sensorRateOfChange
              }
-    
+
     return result
 
 def readLiveData():
