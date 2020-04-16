@@ -13,29 +13,23 @@
 #  Changes:
 #    30/03/2020: Backport comms robustness improvements from Android uploader
 #    06/04/2020: Extract more sensor related data from pump status message
+#    13/04/2020: Return complete pump status data in statusDownload()
 #  
 ###############################################################################
 
 import logging
 # logging.basicConfig has to be before astm import, otherwise logs don't appear
 logging.basicConfig(format='%(asctime)s %(levelname)s [%(name)s] %(message)s', level=logging.WARNING)
-# a nasty workaround on missing hidapi.dll on my windows (allows testing from saved files, but not download of pump)
-try:
-    import hid # pip install hidapi - Platform independant
-except WindowsError:
-    pass
-import astm # pip install astm
+import hid    # pip install hidapi - Platform independant
+import astm   # pip install astm
+import crc16  # pip install crc16
+import lzo    # pip install python-lzo
+import Crypto.Cipher.AES # pip install PyCrypto
 import struct
 import binascii
-#import datetime
-import crc16 # pip install crc16
-import Crypto.Cipher.AES # pip install PyCrypto
 import sqlite3
 import hashlib
 import re
-#import pickle # needed for local history export
-import lzo # pip install python-lzo
-from .pump_history_parser import NGPHistoryEvent, BloodGlucoseReadingEvent
 from helpers import DateTimeHelper
 
 logger = logging.getLogger(__name__)
@@ -1735,42 +1729,149 @@ def downloadPumpSession(downloadOperations):
 
     return pumpData
 
+
 def statusDownload(mt):
+    
     status = mt.getPumpStatus()
-    #print (binascii.hexlify( status.responsePayload ))
-    print ("Device serial: {0}".format(mt.deviceSerial))
-    print ("Active Insulin: {0:.3f}U".format( status.activeInsulin ))
-    print ("Sensor BGL: {0} mg/dL ({1:.1f} mmol/L) at {2}".format( status.sensorBGL,
-             status.sensorBGL / 18.016,
-             status.sensorBGLTimestamp.strftime( "%c" ) ))
-    print ("BGL trend: {0}".format( status.trendArrow ))
 
-    print ("Current basal rate: {0:.3f}U".format( status.currentBasalRate ))
-    print ("Temp basal rate: {0:.3f}U".format( status.tempBasalRate ))
-    print ("Temp basal percentage: {0}%".format( status.tempBasalPercentage ))
-    print ("Units remaining: {0}U ({1:02d}:{2:02d}h)".format( status.insulinUnitsRemaining, status.insulinHoursRemaining, status.insulinMinutesRemaining ))
-    print ("Battery remaining: {0}%".format( status.batteryLevelPercentage ))
-
-    print ("Last bolus: {0:.1f}U at {1}".format( status.lastBolusAmount, status.lastBolusTime.strftime( "%c" ) ))
-    print ("Time until next sensor calibration {0:02d}:{1:02d}h".format( status.sensorCalMinutesRemaining/60, status.sensorCalMinutesRemaining%60 ))
-    print ("Sensor battery remaining: {0}%".format( status.sensorBatteryLevelPercentage ))
-    print ("Sensor rate of change: {0}".format( status.sensorRateOfChange ))
-
-    result = {"serial":mt.deviceSerial,
-              "actins":status.activeInsulin, 
-              "bgl":status.sensorBGL,
-              "time":status.sensorBGLTimestamp,
-              "trend":status.trendArrow,
-              "unit":status.insulinUnitsRemaining,
-              "batt":status.batteryLevelPercentage,
-              "lbol":status.lastBolusAmount,
-              "lbolt":status.lastBolusTime,
-              "sctime":status.sensorCalMinutesRemaining,
-              "sbatt":status.sensorBatteryLevelPercentage,
-              "srate":status.sensorRateOfChange
+    print
+    print ("### Serial ###")
+    print ("CNL serial: {0}".format(mt.deviceSerial))
+    print
+    print ("### Pump status ###")
+    print ("suspended:            {0}".format(status.isPumpStatusSuspended))
+    print ("bolusingNormal:       {0}".format(status.isPumpStatusBolusingNormal))
+    print ("bolusingSquare:       {0}".format(status.isPumpStatusBolusingSquare))
+    print ("bolusingDual:         {0}".format(status.isPumpStatusBolusingDual))
+    print ("deliveringInsulin:    {0}".format(status.isPumpStatusDeliveringInsulin))
+    print ("tempBasalActive:      {0}".format(status.isPumpStatusTempBasalActive))
+    print ("cgmActive:            {0}".format(status.isPumpStatusCgmActive))
+    print
+    print ("### Pump alert ###")
+    print ("alertOnHigh:          {0}".format(status.isPlgmAlertOnHigh))
+    print ("alertOnLow:           {0}".format(status.isPlgmAlertOnLow))
+    print ("alertBeforeHigh:      {0}".format(status.isPlgmAlertBeforeHigh))
+    print ("alertBeforeLow:       {0}".format(status.isPlgmAlertBeforeLow))
+    print ("alertSuspend:         {0}".format(status.isPlgmAlertSuspend))
+    print ("alertSuspendLow:      {0}".format(status.islgmAlertSuspendLow))
+    print ("alert:                {0}".format(status.alert))
+    print ("alertDate:            {0}".format(status.alertDate.strftime( "%c" )))
+    print ("isAlertSilenceHigh:   {0}".format(status.isAlertSilenceHigh))
+    print ("isAlertSilenceHighLow:{0}".format(status.isAlertSilenceHighLow))
+    print ("isAlertSilenceAll:    {0}".format(status.isAlertSilenceAll))
+    print ("alertSilenceMinutesRemaining:{0}".format(status.alertSilenceMinutesRemaining))
+    print
+    print ("### Sensor status ###")
+    print ("calibrating:          {0}".format(status.isSensorStatusCalibrating))
+    print ("calibrationComplete:  {0}".format(status.isSensorStatusCalibrationComplete))
+    print ("exception:            {0}".format(status.isSensorStatusException))
+    print ("sensorCalMinutesRemaining:   {0}".format(status.sensorCalMinutesRemaining))
+    print ("sensorBatteryLevelPercentage:{0}".format(status.sensorBatteryLevelPercentage))
+    print ("sensorRateOfChange:          {0}".format(status.sensorRateOfChange))
+    print
+    print ("### Bolus ###")
+    print ("bolusingDelivered:        {0}".format(status.bolusingDelivered))
+    print ("bolusingMinutesRemaining: {0}".format(status.bolusingMinutesRemaining))
+    print ("bolusingReference:        {0}".format(status.bolusingReference))
+    print ("lastBolusAmount:          {0}".format(status.lastBolusAmount))
+    print ("lastBolusTime:            {0}".format(status.lastBolusTime.strftime( "%c" )))
+    print ("lastBolusReference:       {0}".format(status.lastBolusReference))
+    print ("recentBolusWizard:        {0}".format(status.recentBolusWizard))
+    print ("recentBGL:                {0}".format(status.recentBGL))
+    print
+    print ("### Basal ###")
+    print ("activeBasalPattern:       {0}".format(status.activeBasalPattern))
+    print ("activeTempBasalPattern:   {0}".format(status.activeTempBasalPattern))
+    print ("currentBasalRate:         {0}".format(status.currentBasalRate))
+    print ("tempBasalRate:            {0}".format(status.tempBasalRate))
+    print ("tempBasalPercentage:      {0}".format(status.tempBasalPercentage))
+    print ("tempBasalMinutesRemaining:{0}".format(status.tempBasalMinutesRemaining))
+    print ("basalUnitsDeliveredToday: {0}".format(status.basalUnitsDeliveredToday))
+    print
+    print ("### Battery ###")
+    print ("batteryLevelPercentage:   {0}".format(status.batteryLevelPercentage))
+    print               
+    print ("### Insulin ###")
+    print ("insulinUnitsRemaining:    {0}".format(status.insulinUnitsRemaining))
+    print ("minutesOfInsulinRemaining:{0}".format(status.minutesOfInsulinRemaining))
+    print ("activeInsulin:            {0}".format(status.activeInsulin))
+    print               
+    print ("### BGL ###")
+    print ("sensorBGL:                {0}".format(status.sensorBGL))
+    print ("sensorBGLTimestamp:       {0}".format(status.sensorBGLTimestamp))
+    print ("trendArrow:               {0}".format(status.trendArrow))
+    print
+    
+    
+    result = { # CNL serial
+               "serial":mt.deviceSerial,
+               
+               # Pump status
+               "pumpStatus":{"suspended":status.isPumpStatusSuspended,
+                             "bolusingNormal":status.isPumpStatusBolusingNormal,
+                             "bolusingSquare":status.isPumpStatusBolusingSquare,
+                             "bolusingDual":status.isPumpStatusBolusingDual,
+                             "deliveringInsulin":status.isPumpStatusDeliveringInsulin,
+                             "tempBasalActive":status.isPumpStatusTempBasalActive,
+                             "cgmActive":status.isPumpStatusCgmActive},
+               
+               # Pump alert
+               "pumpAlert":{"alertOnHigh":status.isPlgmAlertOnHigh,
+                            "alertOnLow":status.isPlgmAlertOnLow,
+                            "alertBeforeHigh":status.isPlgmAlertBeforeHigh,
+                            "alertBeforeLow":status.isPlgmAlertBeforeLow,
+                            "alertSuspend":status.isPlgmAlertSuspend,
+                            "alertSuspendLow":status.islgmAlertSuspendLow},
+               "alert":status.alert,
+               "alertDate":status.alertDate,
+               "isAlertSilenceHigh":status.isAlertSilenceHigh,
+               "isAlertSilenceHighLow":status.isAlertSilenceHighLow,
+               "isAlertSilenceAll":status.isAlertSilenceAll,
+               "alertSilenceMinutesRemaining":status.alertSilenceMinutesRemaining,
+               
+               # Sensor status
+               "sensorStatus":{"calibrating":status.isSensorStatusCalibrating,
+                               "calibrationComplete":status.isSensorStatusCalibrationComplete,
+                               "exception":status.isSensorStatusException},
+               "sensorCalMinutesRemaining":status.sensorCalMinutesRemaining,
+               "sensorBatteryLevelPercentage":status.sensorBatteryLevelPercentage,
+               "sensorRateOfChange":status.sensorRateOfChange,
+               
+               # Bolus
+               "bolusingDelivered":status.bolusingDelivered,
+               "bolusingMinutesRemaining":status.bolusingMinutesRemaining,
+               "bolusingReference":status.bolusingReference,
+               "lastBolusAmount":status.lastBolusAmount,
+               "lastBolusTime":status.lastBolusTime,
+               "lastBolusReference":status.lastBolusReference,
+               "recentBolusWizard":status.recentBolusWizard,
+               "recentBGL":status.recentBGL,
+               
+               # Basal
+               "activeBasalPattern":status.activeBasalPattern,
+               "activeTempBasalPattern":status.activeTempBasalPattern,
+               "currentBasalRate":status.currentBasalRate,
+               "tempBasalRate":status.tempBasalRate,
+               "tempBasalPercentage":status.tempBasalPercentage,
+               "tempBasalMinutesRemaining":status.tempBasalMinutesRemaining,
+               "basalUnitsDeliveredToday":status.basalUnitsDeliveredToday,
+               
+               # Battery
+               "batteryLevelPercentage":status.batteryLevelPercentage,
+               
+               # Insulin
+               "insulinUnitsRemaining":status.insulinUnitsRemaining,
+               "minutesOfInsulinRemaining":status.minutesOfInsulinRemaining,
+               "activeInsulin":status.activeInsulin,
+               
+               # BGL
+               "sensorBGL":status.sensorBGL,
+               "sensorBGLTimestamp":status.sensorBGLTimestamp,
+               "trendArrow":status.trendArrow
              }
 
     return result
+
 
 def readLiveData():
    return downloadPumpSession(statusDownload)

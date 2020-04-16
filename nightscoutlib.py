@@ -17,8 +17,9 @@
 #    25/11/2019 - Add exception code handling
 #    29/11/2019 - Upload of real device serial and pump date
 #    13/12/2019 - Check for "lost sensor" condition
+#    14/04/2020 - Adapt to new data format from CNL driver
 #
-#  Copyright 2019, Ondrej Wisniewski 
+#  Copyright 2019-2020, Ondrej Wisniewski 
 #  
 #  This file is part of the DD-Guard project.
 #  
@@ -235,9 +236,16 @@ class nightscout_uploader(object):
          print "Uploading data to Nightscout"
          
          # Upload sensor data
-         rc = self.upload_entries(data["serial"], data["bgl"], data["trend"], data["time"])
+         rc = self.upload_entries(data["serial"], 
+                                  data["sensorBGL"], 
+                                  data["trendArrow"], 
+                                  data["sensorBGLTimestamp"])
    
          # Upload pump data
-         rc &= self.upload_devicestatus(data["serial"], data["batt"], data["unit"], data["actins"], data["time"])
+         rc &= self.upload_devicestatus(data["serial"], 
+                                        data["batteryLevelPercentage"], 
+                                        data["insulinUnitsRemaining"], 
+                                        data["activeInsulin"], 
+                                        data["sensorBGLTimestamp"])
 
       return rc   
