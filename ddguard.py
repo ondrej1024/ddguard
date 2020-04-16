@@ -36,6 +36,7 @@
 #    11/02/2020 - Add Blynk virtual pin for active insulin
 #    03/03/2020 - Improved robustness of CNL2.4 driver
 #    14/04/2020 - Adapt to new data format from CNL driver
+#    15/04/2020 - Add more status data to blynk uploader
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
@@ -68,12 +69,13 @@ import syslog
 import sys
 import time
 import thread
+import datetime
 import ConfigParser
 import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.5.1"
+VERSION = "0.6"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -85,13 +87,15 @@ VPIN_UNITS   = 3
 VPIN_ARROWS  = 4
 VPIN_STATUS  = 5
 VPIN_ACTINS  = 6
+VPIN_LASTBOLUS = 7
 
 # color definitions
+BLYNK_WHITE  = "#F0F0F0"
 BLYNK_GREEN  = "#23C48E"
 BLYNK_BLUE   = "#04C0F8"
 BLYNK_YELLOW = "#ED9D00"
 BLYNK_RED    = "#D3435C"
-
+BLYNK_DARK_BLUE = "#5F7CD8"
 
 sensor_exception_codes = {
     SENSOR_EXCEPTIONS.SENSOR_OK:               SENSOR_EXCEPTIONS.SENSOR_OK_STR,
@@ -111,8 +115,18 @@ sensor_exception_codes = {
 }
 
 is_connected = False
+lastBolusTime = None
+cycleCount = 0
 
 CONFIG_FILE = "/etc/ddguard.conf"
+
+
+def to_int(string):
+   try:
+      i = int(string)
+   except:
+      i = 0
+   return i
 
 
 #########################################################
@@ -133,7 +147,7 @@ def read_config(cfilename):
       # Read Blynk parameters
       read_config.blynk_server    = config.get('blynk', 'server').split("#")[0].strip('"').strip("'").strip()
       read_config.blynk_token     = config.get('blynk', 'token').split("#")[0].strip('"').strip("'").strip()
-      read_config.blynk_heartbeat = int(config.get('blynk', 'heartbeat').split("#")[0].strip('"').strip("'"))
+      read_config.blynk_heartbeat = to_int(config.get('blynk', 'heartbeat').split("#")[0].strip('"').strip("'"))
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed blynk option not found in config file")
       return False
@@ -147,15 +161,21 @@ def read_config(cfilename):
       return False
 
    try:
-      # Read BGL parameters
-      read_config.bgl_low_val      = int(config.get('bgl', 'bgl_low').split("#")[0].strip('"').strip("'"))
-      read_config.bgl_pre_low_val  = int(config.get('bgl', 'bgl_pre_low').split("#")[0].strip('"').strip("'"))
-      read_config.bgl_pre_high_val = int(config.get('bgl', 'bgl_pre_high').split("#")[0].strip('"').strip("'"))
-      read_config.bgl_high_val     = int(config.get('bgl', 'bgl_high').split("#")[0].strip('"').strip("'"))
+      # Read BGL alert parameters
+      read_config.bgl_low_val      = to_int(config.get('bgl', 'bgl_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_low_val  = to_int(config.get('bgl', 'bgl_pre_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_high_val = to_int(config.get('bgl', 'bgl_pre_high').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_high_val     = to_int(config.get('bgl', 'bgl_high').split("#")[0].strip('"').strip("'"))
    except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed bgl option not found in config file")
       return False
 
+   # Disable BGL parameters if not specified in config
+   if read_config.bgl_pre_high_val == 0:
+      read_config.bgl_pre_high_val = 1000
+   if read_config.bgl_high_val == 0:
+      read_config.bgl_high_val = 1000
+      
    print ("Blynk server:    %s" % read_config.blynk_server)
    print ("Blynk token:     %s" % read_config.blynk_token)
    print ("Blynk heartbeat: %d" % read_config.blynk_heartbeat)
@@ -195,49 +215,89 @@ def on_sigterm(signum, frame):
 #########################################################
 def blynk_upload(data):
 
+   global lastBolusTime
+   global cycleCount
+   
    if data != None:
       print "Uploading data to Blynk"
        
       # Send sensor data
       if data["sensorBGL"] in sensor_exception_codes:
-         # Special status code
+         # Sensor exception occured
+         
+         # BGL gauge
          blynk.virtual_write(VPIN_SENSOR, None)
-         blynk.virtual_write(VPIN_ARROWS, "--")
-         blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[data["sensorBGL"]])
+         blynk.set_property(VPIN_SENSOR, "color", BLYNK_WHITE)
+         
+         # Trend and active insulin
+         blynk.virtual_write(VPIN_ARROWS, "--"+" / "+str(data["activeInsulin"]))
+         
+         # Status line
+         blynk.virtual_write(VPIN_STATUS, datetime.datetime.now().strftime("%H:%M")+" - "+sensor_exception_codes[data["sensorBGL"]])
          blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
       else:
          # Regular BGL data
+         
+         # BLG gauge
          blynk.virtual_write(VPIN_SENSOR, data["sensorBGL"])
-         if data["sensorBGL"] < read_config.bgl_low_val:
+         if data["pumpAlert"]["alertSuspend"] or data["pumpAlert"]["alertSuspendLow"]:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_BLUE)
+         elif data["sensorBGL"] < read_config.bgl_low_val or data["sensorBGL"] > read_config.bgl_high_val or \
+              data["pumpAlert"]["alertOnLow"] or data["pumpAlert"]["alertOnHigh"]:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
-         elif data["sensorBGL"] < read_config.bgl_pre_low_val:
-            blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-         elif data["sensorBGL"] < read_config.bgl_pre_high_val:
-            blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
-         elif data["sensorBGL"] < read_config.bgl_high_val:
+         elif data["sensorBGL"] < read_config.bgl_pre_low_val or data["sensorBGL"] > read_config.bgl_pre_high_val or \
+              data["pumpAlert"]["alertBeforeLow"] or data["pumpAlert"]["alertBeforeHigh"]:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
          else:
-            blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
+         
+         # Trend and active insulin
          blynk.virtual_write(VPIN_ARROWS, str(data["trendArrow"])+" / "+str(data["activeInsulin"]))
-         blynk.virtual_write(VPIN_STATUS, "Last update "+str(data["sensorBGLTimestamp"]).split(' ')[1].split('.')[0])
+         
+         # Status line
+         calTime = "Cal in {0}:{1:02d}h".format(data["sensorCalMinutesRemaining"]/60,data["sensorCalMinutesRemaining"]%60)
+         blynk.virtual_write(VPIN_STATUS, "Updated "+data["sensorBGLTimestamp"].strftime("%H:%M")+" - "+calTime)
          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
        
       # Send pump data
-      blynk.virtual_write(VPIN_BATTERY, data["batteryLevelPercentage"])
-      if data["batteryLevelPercentage"] <= 25:
+
+      # Battery bar
+      # Alternate pump and sensor battery
+      if cycleCount%2 == 0:
+         data_batt = data["batteryLevelPercentage"]
+         label_batt = "PUMP BATTERY %"
+      else:
+         data_batt = data["sensorBatteryLevelPercentage"]
+         label_batt = "SENSOR BATTERY %"
+      blynk.set_property(VPIN_BATTERY, "label", label_batt)
+      blynk.virtual_write(VPIN_BATTERY, data_batt)
+      if data_batt <= 25:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
-      elif data["batteryLevelPercentage"] <= 50:
+      elif data_batt <= 50:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
       else:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
-      blynk.virtual_write(VPIN_UNITS,   data["insulinUnitsRemaining"])
+      
+      # Reservoir bar
+      blynk.virtual_write(VPIN_UNITS, int(round(data["insulinUnitsRemaining"])))
       if data["insulinUnitsRemaining"] <= 25:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
       elif data["insulinUnitsRemaining"] <= 75:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
       else:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
-      blynk.virtual_write(VPIN_ACTINS,   data["activeInsulin"])
+         
+      # Active insulin / last bolus graph
+      if int(data["lastBolusTime"].strftime("%s")) != lastBolusTime: 
+         print "Bolus time changed"
+         lastBolusTime = int(data["lastBolusTime"].strftime("%s"))
+         # Check if last bolus time is recent
+         if int(time.time()) - lastBolusTime < 2*UPDATE_INTERVAL:
+            print "Bolus time is recent"
+            blynk.virtual_write(VPIN_LASTBOLUS, data["lastBolusAmount"])
+      else:
+         blynk.virtual_write(VPIN_ACTINS, data["activeInsulin"])
+      
    else:
       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
@@ -254,6 +314,8 @@ def blynk_upload(data):
 #########################################################
 def upload_live_data():
    
+   global cycleCount
+      
    # Guard against multiple threads
    if upload_live_data.active:
       return
@@ -292,6 +354,7 @@ def upload_live_data():
    if nightscout != None:
       nightscout.upload(liveData)
     
+   cycleCount += 1
    upload_live_data.active = False
 
 
@@ -358,7 +421,6 @@ signal.signal(signal.SIGINT, on_sigterm)
 signal.signal(signal.SIGTERM, on_sigterm)
 
 upload_live_data.active = False
-
 
 ##########################################################           
 # Main loop
