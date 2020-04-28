@@ -18,6 +18,7 @@
 #    29/11/2019 - Upload of real device serial and pump date
 #    13/12/2019 - Check for "lost sensor" condition
 #    14/04/2020 - Adapt to new data format from CNL driver
+#    27/04/2020 - Add pump status handling
 #
 #  Copyright 2019-2020, Ondrej Wisniewski 
 #  
@@ -131,10 +132,13 @@ class nightscout_uploader(object):
    #              API endpoint
    # 
    #########################################################
-   def upload_entries(self, serial, sgv, trend, date):
+   def upload_entries(self, data):
 
       rc = True
       url = self.ns_url + self.api_base + "entries.json"
+      sgv = data["sensorBGL"]
+      trend = data["trendArrow"]
+      date = data["sensorBGLTimestamp"]
       
       # Check for "lost sensor" condition
       # We don't upload any sensor data in this case
@@ -149,7 +153,7 @@ class nightscout_uploader(object):
          trend_str = self.direction_str(trend)
       
       payload = {
-            "device":self.device+serial,
+            "device":self.device+data["serial"],
             "type":"sgv",
             "dateString":date.strftime("%c"),
             "date":int(date.strftime("%s"))*1000,
@@ -182,23 +186,40 @@ class nightscout_uploader(object):
    #              API endpoint
    # 
    #########################################################
-   def upload_devicestatus(self, serial, battery, reservoir, iob, date):
+   def upload_devicestatus(self, data):
    
       rc = True
       url = self.ns_url + self.api_base + "devicestatus.json"
+      date = data["pumpTime"]
+      
+      # Build pump status
+      if data["pumpStatus"]["cgmActive"]:
+         status = " | "
+         if data["sensorStatus"]["exception"]==0:
+            status = status + str(data["sensorBatteryLevelPercentage"]) + "% "
+         if data["sensorCalMinutesRemaining"]>0:
+            status = status + str(data["sensorCalMinutesRemaining"]/60) +":"+str(data["sensorCalMinutesRemaining"]%60)
+      else:
+         status = ""
+      
       payload = {
-            "device":self.device+serial,
-            #"created_at": int(time.time()*1000),
-            #"uploaderBattery": 100,
+            "device":self.device+data["serial"],
+            "created_at": int(date.strftime("%s"))*1000,
+            "uploaderBattery":100, # FIXME
             "pump": {
                "clock":int(date.strftime("%s"))*1000,
-               "reservoir":reservoir,
+               "reservoir":data["insulinUnitsRemaining"],
                "battery": {
-                  "percent":battery
+                  "percent":data["batteryLevelPercentage"]
                },
                "iob": {
                   "timestamp":int(date.strftime("%s"))*1000,
-                  "bolusiob":iob
+                  "bolusiob":data["activeInsulin"]
+               },
+               "status": {
+                  "bolusing":True if (data["pumpStatus"]["bolusingNormal"]|data["pumpStatus"]["bolusingSquare"]|data["pumpStatus"]["bolusingDual"]) else False,
+                  "suspended":True if data["pumpStatus"]["suspended"] else False,
+                  "status":status
                }
             }
          }
@@ -236,16 +257,9 @@ class nightscout_uploader(object):
          print "Uploading data to Nightscout"
          
          # Upload sensor data
-         rc = self.upload_entries(data["serial"], 
-                                  data["sensorBGL"], 
-                                  data["trendArrow"], 
-                                  data["sensorBGLTimestamp"])
+         rc = self.upload_entries(data)
    
          # Upload pump data
-         rc &= self.upload_devicestatus(data["serial"], 
-                                        data["batteryLevelPercentage"], 
-                                        data["insulinUnitsRemaining"], 
-                                        data["activeInsulin"], 
-                                        data["sensorBGLTimestamp"])
+         rc &= self.upload_devicestatus(data)
 
       return rc   
