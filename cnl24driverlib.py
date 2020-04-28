@@ -969,7 +969,6 @@ class Medtronic600SeriesDriver( object ):
     CHANNELS = [ 0x14, 0x11, 0x0e, 0x17, 0x1a ] # In the order that the CareLink applet requests them
 
     session = None
-    offset = -1592387759; # Just read out of my pump. Shall be overwritten by reading date/time from pump
 
     def __init__( self ):
         self.session = MedtronicSession()
@@ -1240,6 +1239,13 @@ class Medtronic600SeriesDriver( object ):
         else:
             return self.deviceInfo[0][4][3][1]
 
+    @property
+    def pumpTime( self ):
+        if not self.datetime:
+            return None
+        else:
+            return self.datetime
+         
     def getDeviceInfo( self ):
         logger.info("# Read Device Info")
         self.sendMessage( struct.pack( '>B', 0x58 ) )
@@ -1438,7 +1444,8 @@ class Medtronic600SeriesDriver( object ):
         self.sendMessage( bayerMessage.encode() )
         self.readResponse0x81()
         result = self.getMedtronicMessage([COM_D_COMMAND.TIME_RESPONSE])
-        self.offset = result.offset;
+        self.datetime = result.datetime
+        self.offset = result.offset
         return result
 
     def getPumpStatus( self ):
@@ -1739,6 +1746,7 @@ def statusDownload(mt):
     print ("CNL serial: {0}".format(mt.deviceSerial))
     print
     print ("### Pump status ###")
+    print ("time:                 {0}".format(mt.pumpTime))
     print ("suspended:            {0}".format(status.isPumpStatusSuspended))
     print ("bolusingNormal:       {0}".format(status.isPumpStatusBolusingNormal))
     print ("bolusingSquare:       {0}".format(status.isPumpStatusBolusingSquare))
@@ -1805,6 +1813,9 @@ def statusDownload(mt):
     
     result = { # CNL serial
                "serial":mt.deviceSerial,
+               
+               # Pump time
+               "pumpTime":mt.pumpTime,
                
                # Pump status
                "pumpStatus":{"suspended":status.isPumpStatusSuspended,
