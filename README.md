@@ -95,6 +95,7 @@ The gateway software is a Python program which interfaces with the Contour Next 
 You need Python support which is installed by default on the RaspberryPi OS "Raspbian". Additionally some non standard libraries need to added.
 
 If python3 is not yet installed:
+
     sudo apt install python3
 
 ##### Install needed Python libraries:
