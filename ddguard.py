@@ -37,6 +37,7 @@
 #    03/03/2020 - Improved robustness of CNL2.4 driver
 #    14/04/2020 - Adapt to new data format from CNL driver
 #    15/04/2020 - Add more status data to blynk uploader
+#    28/06/2020 - Syntax updates for Python3
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
