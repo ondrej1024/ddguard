@@ -75,8 +75,11 @@ class NS_TREND:
 class nightscout_uploader(object):
    
    def __init__(self, server, secret):
-      self.ns_url     = "http://"+server.strip()
-      self.api_secret = hashlib.sha1(secret.strip()).hexdigest()
+      if "http" in server.strip():
+         self.ns_url  = server.strip()
+      else:
+         self.ns_url     = "http://"+server.strip()
+      self.api_secret = hashlib.sha1(str(secret.strip()).encode('utf-8')).hexdigest()
       self.api_base   = "/api/v1/"
       self.device     = "medtronic-600://"
       self.headers    = {
@@ -139,7 +142,7 @@ class nightscout_uploader(object):
       # Check for "lost sensor" condition
       # We don't upload any sensor data in this case
       if (sgv == 0) and (trend == -3) and (date.strftime("%c").find("01:00:00 1970") != -1):
-         print "Sensor lost, not uploading SGV data"
+         print("Sensor lost, not uploading SGV data")
          return False
       
       # Check for exception codes
@@ -233,7 +236,7 @@ class nightscout_uploader(object):
    
       rc = True
       if data != None:
-         print "Uploading data to Nightscout"
+         print("Uploading data to Nightscout")
          
          # Upload sensor data
          rc = self.upload_entries(data["serial"], 
