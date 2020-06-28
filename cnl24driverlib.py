@@ -14,6 +14,7 @@
 #    30/03/2020: Backport comms robustness improvements from Android uploader
 #    06/04/2020: Extract more sensor related data from pump status message
 #    13/04/2020: Return complete pump status data in statusDownload()
+#    28/06/2020: Updated syntax for Python3
 #  
 ###############################################################################
 
