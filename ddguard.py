@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.8
+#!/usr/bin/env python3
 ###############################################################################
 #  
 #  Diabetes Data Guard (DD-Guard): Gateway module
