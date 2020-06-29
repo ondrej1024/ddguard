@@ -18,6 +18,7 @@
 #    29/11/2019 - Upload of real device serial and pump date
 #    13/12/2019 - Check for "lost sensor" condition
 #    14/04/2020 - Adapt to new data format from CNL driver
+#    27/04/2020 - Add pump status handling
 #    28/06/2020 - Syntax updates for Python3
 #
 #  Copyright 2019-2020, Ondrej Wisniewski 
