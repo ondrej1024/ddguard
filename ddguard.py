@@ -37,11 +37,13 @@
 #    03/03/2020 - Improved robustness of CNL2.4 driver
 #    14/04/2020 - Adapt to new data format from CNL driver
 #    15/04/2020 - Add more status data to blynk uploader
+#    28/04/2020 - Account for pump RTC drift
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
 #    - Add some notification mechanism for alarms e.g. Telegram or Pushover message
-#    - Upload data to Tidepool
+#    - Upload historical data to Tidepool
+#    - Push live data to MQTT broker
 #
 #  Copyright 2019-2020, Ondrej Wisniewski 
 #  
@@ -75,7 +77,7 @@ import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.6"
+VERSION = "0.6.1"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -255,8 +257,8 @@ def blynk_upload(data):
          blynk.virtual_write(VPIN_ARROWS, str(data["trendArrow"])+" / "+str(data["activeInsulin"]))
          
          # Status line
-         calTime = "Cal in {0}:{1:02d}h".format(data["sensorCalMinutesRemaining"]/60,data["sensorCalMinutesRemaining"]%60)
-         blynk.virtual_write(VPIN_STATUS, "Updated "+data["sensorBGLTimestamp"].strftime("%H:%M")+" - "+calTime)
+         calTime = datetime.datetime.now() + datetime.timedelta(minutes=data["sensorCalMinutesRemaining"])
+         blynk.virtual_write(VPIN_STATUS, "Updated "+data["sensorBGLTimestamp"].strftime("%H:%M")+" - Next cal "+calTime.strftime("%H:%M"))
          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
        
       # Send pump data
@@ -336,19 +338,19 @@ def upload_live_data():
          numRetries -= 1
          if numRetries > 0:
             time.sleep(5)
-    
+   
+   # Account for pump RTC drift
+   if liveData:
+      print("account for pump RTC drift:")
+      print("   before: pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
+      pumpTimeDiff = liveData["pumpTime"] - datetime.datetime.now(liveData["pumpTime"].tzinfo)
+      liveData["sensorBGLTimestamp"] = liveData["sensorBGLTimestamp"] - pumpTimeDiff
+      liveData["pumpTime"] = datetime.datetime.now(liveData["pumpTime"].tzinfo)
+      print("   after:  pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
+      
    # Upload data to Blynk server
    if blynk != None:
       blynk_upload(liveData)
-
-   # TEST
-   #liveData = {"actins":0.5, 
-               #"bgl":778,
-               #"time":"111",
-               #"trend":2,
-               #"unit":60,
-               #"batt":25
-              #}
 
    # Upload data to Nighscout server
    if nightscout != None:
