@@ -968,10 +968,6 @@ class Medtronic600SeriesDriver( object ):
     READ_TIMEOUT_MS          = 25000
     CNL_READ_TIMEOUT_MS      = 2000
 
-    MULTIPACKET_TIMEOUT_MS = 1000
-    MULTIPACKET_SEGMENT_MS = 50
-    MULTIPACKET_SEGMENT_RETRY = 10
-
     CHANNELS = [ 0x14, 0x11, 0x0e, 0x17, 0x1a ] # In the order that the CareLink applet requests them
 
     session = None
@@ -1694,7 +1690,7 @@ def downloadPumpSession(downloadOperations):
     try:
         r = mt.openDevice()
     except:
-        logger.error("downloadPumpSession: Cannot open USB device. Abandoning : %s" % r.text)
+        logger.error("downloadPumpSession: Cannot open USB device. Abandoning")
         return None
 
     try:
@@ -1711,7 +1707,7 @@ def downloadPumpSession(downloadOperations):
                     try:
                         r = mt.negotiateChannel()
                     except:
-                        logger.error("downloadPumpSession: Cannot connect to the pump. Abandoning : %s" % r.text)
+                        logger.error("downloadPumpSession: Cannot connect to the pump. Abandoning")
                         raise
                     mt.beginEHSM()
                     try:
