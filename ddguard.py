@@ -69,9 +69,13 @@ import signal
 import syslog
 import sys
 import time
-import _thread
+if sys.version_info[0] < 3:
+    import thread
+    import ConfigParser
+else:
+    import _thread
+    import configparser
 import datetime
-import configparser
 import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
@@ -139,7 +143,10 @@ def to_int(string):
 def read_config(cfilename):
    
    # Parameters from global config file
-   config = configparser.ConfigParser()
+   if sys.version_info[0] < 3:
+      config = ConfigParser.ConfigParser()
+   else:
+      config = configparser.ConfigParser()
    config.read(cfilename)
    
    #TODO: check if file exists
@@ -412,7 +419,10 @@ timer = blynktimer.Timer()
 @timer.register(interval=UPDATE_INTERVAL, run_once=False)
 def timer_function():
     # Run this as separate thread so we don't cause ping timeouts
-    _thread.start_new_thread(upload_live_data,())
+    if sys.version_info[0] < 3:
+        thread.start_new_thread(upload_live_data,())
+    else:
+        _thread.start_new_thread(upload_live_data,())
 
    
 ##########################################################           
