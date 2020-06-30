@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 ###############################################################################
 #  
 #  Diabetes Data Guard (DD-Guard): Gateway module
@@ -37,6 +37,7 @@
 #    03/03/2020 - Improved robustness of CNL2.4 driver
 #    14/04/2020 - Adapt to new data format from CNL driver
 #    15/04/2020 - Add more status data to blynk uploader
+#    28/06/2020 - Syntax updates for Python3
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
@@ -68,9 +69,13 @@ import signal
 import syslog
 import sys
 import time
-import thread
+if sys.version_info[0] < 3:
+    import thread
+    import ConfigParser
+else:
+    import _thread
+    import configparser
 import datetime
-import ConfigParser
 import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
@@ -138,7 +143,10 @@ def to_int(string):
 def read_config(cfilename):
    
    # Parameters from global config file
-   config = ConfigParser.ConfigParser()
+   if sys.version_info[0] < 3:
+      config = ConfigParser.ConfigParser()
+   else:
+      config = configparser.ConfigParser()
    config.read(cfilename)
    
    #TODO: check if file exists
@@ -148,7 +156,7 @@ def read_config(cfilename):
       read_config.blynk_server    = config.get('blynk', 'server').split("#")[0].strip('"').strip("'").strip()
       read_config.blynk_token     = config.get('blynk', 'token').split("#")[0].strip('"').strip("'").strip()
       read_config.blynk_heartbeat = to_int(config.get('blynk', 'heartbeat').split("#")[0].strip('"').strip("'"))
-   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+   except ConfigParser.NoOptionError as NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed blynk option not found in config file")
       return False
 
@@ -156,7 +164,7 @@ def read_config(cfilename):
       # Read Nightscout parameters
       read_config.nightscout_server     = config.get('nightscout', 'server').split("#")[0].strip('"').strip("'").strip()
       read_config.nightscout_api_secret = config.get('nightscout', 'api_secret').split("#")[0].strip('"').strip("'").strip()
-   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+   except ConfigParser.NoOptionError as NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed nightscout option not found in config file")
       return False
 
@@ -166,7 +174,7 @@ def read_config(cfilename):
       read_config.bgl_pre_low_val  = to_int(config.get('bgl', 'bgl_pre_low').split("#")[0].strip('"').strip("'"))
       read_config.bgl_pre_high_val = to_int(config.get('bgl', 'bgl_pre_high').split("#")[0].strip('"').strip("'"))
       read_config.bgl_high_val     = to_int(config.get('bgl', 'bgl_high').split("#")[0].strip('"').strip("'"))
-   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+   except ConfigParser.NoOptionError as NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed bgl option not found in config file")
       return False
 
@@ -178,16 +186,13 @@ def read_config(cfilename):
       
    print ("Blynk server:    %s" % read_config.blynk_server)
    print ("Blynk token:     %s" % read_config.blynk_token)
-   print ("Blynk heartbeat: %d" % read_config.blynk_heartbeat)
-   print
+   print ("Blynk heartbeat: %d\n" % read_config.blynk_heartbeat)
    print ("Nightscout server:     %s" % read_config.nightscout_server)
-   print ("Nightscout api_secret: %s" % read_config.nightscout_api_secret)
-   print
+   print ("Nightscout api_secret: %s\n" % read_config.nightscout_api_secret)
    print ("BGL low:      %d" % read_config.bgl_low_val)
    print ("BGL pre low:  %d" % read_config.bgl_pre_low_val)
    print ("BGL pre high: %d" % read_config.bgl_pre_high_val)
-   print ("BGL high:     %d" % read_config.bgl_high_val)
-   print
+   print ("BGL high:     %d\n" % read_config.bgl_high_val)
    return True
 
     
@@ -219,7 +224,7 @@ def blynk_upload(data):
    global cycleCount
    
    if data != None:
-      print "Uploading data to Blynk"
+      print("Uploading data to Blynk")
        
       # Send sensor data
       if data["sensorBGL"] in sensor_exception_codes:
@@ -289,11 +294,11 @@ def blynk_upload(data):
          
       # Active insulin / last bolus graph
       if int(data["lastBolusTime"].strftime("%s")) != lastBolusTime: 
-         print "Bolus time changed"
+         print("Bolus time changed")
          lastBolusTime = int(data["lastBolusTime"].strftime("%s"))
          # Check if last bolus time is recent
          if int(time.time()) - lastBolusTime < 2*UPDATE_INTERVAL:
-            print "Bolus time is recent"
+            print("Bolus time is recent")
             blynk.virtual_write(VPIN_LASTBOLUS, data["lastBolusAmount"])
       else:
          blynk.virtual_write(VPIN_ACTINS, data["activeInsulin"])
@@ -322,7 +327,7 @@ def upload_live_data():
     
    upload_live_data.active = True
    
-   print "read live data from pump"
+   print("read live data from pump")
    hasFailed = True
    numRetries = MAX_RETRIES_AT_FAILURE
    while hasFailed and numRetries > 0:
@@ -330,7 +335,7 @@ def upload_live_data():
          liveData = cnl24driverlib.readLiveData()
          hasFailed = False
       except:
-         print "unexpected ERROR occured while reading live data"
+         print("unexpected ERROR occured while reading live data")
          syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured while reading live data")
          liveData = None
          numRetries -= 1
@@ -338,8 +343,11 @@ def upload_live_data():
             time.sleep(5)
     
    # Upload data to Blynk server
-   if blynk != None:
-      blynk_upload(liveData)
+   if blynk != None and liveData != None:
+      try:
+         blynk_upload(liveData)
+      except:
+         syslog.syslog(syslog.LOG_ERR, "Blynk upload ERROR")
 
    # TEST
    #liveData = {"actins":0.5, 
@@ -351,8 +359,11 @@ def upload_live_data():
               #}
 
    # Upload data to Nighscout server
-   if nightscout != None:
-      nightscout.upload(liveData)
+   if nightscout != None and liveData != None:
+      try:
+         nightscout.upload(liveData)
+      except:
+         syslog.syslog(syslog.LOG_ERR, "Nightscout upload ERROR")
     
    cycleCount += 1
    upload_live_data.active = False
@@ -371,7 +382,7 @@ nightscout_enabled = (read_config.nightscout_server != "") and (read_config.nigh
 
 # Init Blynk instance
 if blynk_enabled:
-   print "Blynk upload is enabled"
+   print("Blynk upload is enabled")
    blynk = blynklib.Blynk(read_config.blynk_token,
                           server=read_config.blynk_server.strip(),
                           heartbeat=read_config.blynk_heartbeat)
@@ -381,7 +392,7 @@ if blynk_enabled:
       global is_connected
       if not is_connected:
          is_connected = True
-         print('Connected to cloud server')
+         print("Connected to cloud server")
          syslog.syslog(syslog.LOG_NOTICE, "Connected to cloud server")
 
    @blynk.handle_event("disconnect")
@@ -389,14 +400,14 @@ if blynk_enabled:
       global is_connected
       if is_connected:
          is_connected = False
-         print('Disconnected from cloud server')
+         print("Disconnected from cloud server")
          syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
 else:
    blynk = None
 
 # Init Nighscout instance (if requested)
 if nightscout_enabled:
-   print "Nightscout upload is enabled"
+   print("Nightscout upload is enabled")
    nightscout = nightscoutlib.nightscout_uploader(server = read_config.nightscout_server, 
                                                   secret = read_config.nightscout_api_secret)
 else:
@@ -408,7 +419,10 @@ timer = blynktimer.Timer()
 @timer.register(interval=UPDATE_INTERVAL, run_once=False)
 def timer_function():
     # Run this as separate thread so we don't cause ping timeouts
-    thread.start_new_thread(upload_live_data,())
+    if sys.version_info[0] < 3:
+        thread.start_new_thread(upload_live_data,())
+    else:
+        _thread.start_new_thread(upload_live_data,())
 
    
 ##########################################################           
