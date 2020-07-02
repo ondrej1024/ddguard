@@ -101,12 +101,13 @@ If python3 is not yet installed:
 ##### Install needed Python libraries:
 
     sudo apt install python3-pip
+    sudo apt install liblzo2-dev
     sudo pip3 install blynklib
     sudo pip3 install astm
     sudo pip3 install crc16
     sudo apt install python3-hid python3-hidapi
     sudo apt install python3-pycryptodome
-    sudo apt install python3-lzo
+    sudo pip3 install python-lzo
     sudo apt install python3-dateutil
     sudo apt install python3-requests
 
