@@ -260,7 +260,7 @@ def blynk_upload(data):
          blynk.virtual_write(VPIN_ARROWS, str(data["trendArrow"])+" / "+str(data["activeInsulin"]))
          
          # Status line
-         calTime = "Cal in {0}:{1:02d}h".format(data["sensorCalMinutesRemaining"]/60,data["sensorCalMinutesRemaining"]%60)
+         calTime = "Cal in {0}:{1:02d}h".format(int(data["sensorCalMinutesRemaining"]/60),data["sensorCalMinutesRemaining"]%60)
          blynk.virtual_write(VPIN_STATUS, "Updated "+data["sensorBGLTimestamp"].strftime("%H:%M")+" - "+calTime)
          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
        

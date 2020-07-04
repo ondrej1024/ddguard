@@ -1742,8 +1742,6 @@ def downloadPumpSession(downloadOperations):
 def statusDownload(mt):
     
     status = mt.getPumpStatus()
-    start_date = datetime.datetime.now() - datetime.timedelta(days=1)
-    historyInfo = mt.getPumpHistoryInfo(start_date, datetime.datetime.max, HISTORY_DATA_TYPE.PUMP_DATA)
 
     print ("\n### Serial ###")
     print ("CNL serial: {0}\n".format(mt.deviceSerial))
@@ -1803,9 +1801,6 @@ def statusDownload(mt):
     print ("sensorBGL:                {0}".format(status.sensorBGL))
     print ("sensorBGLTimestamp:       {0}".format(status.sensorBGLTimestamp))
     print ("trendArrow:               {0}\n".format(status.trendArrow))
-    print ("pumpStart:                {0}".format(historyInfo.datetimeStart))
-    print ("pumpEnd:                  {0}".format(historyInfo.datetimeEnd))
-    print ("pumpSize:                 {0}".format(historyInfo.historySize))
     
     
     result = { # CNL serial
@@ -1881,5 +1876,26 @@ def statusDownload(mt):
     return result
 
 
+def historyDownload(mt):
+    
+    start_date = datetime.datetime.now() - datetime.timedelta(days=1)
+    historyInfo = mt.getPumpHistoryInfo(start_date, datetime.datetime.max, HISTORY_DATA_TYPE.PUMP_DATA)
+    # print (binascii.hexlify( historyInfo.responsePayload,  ))
+    
+    print ("pumpStart:                {0}".format(historyInfo.datetimeStart))
+    print ("pumpEnd:                  {0}".format(historyInfo.datetimeEnd))
+    print ("pumpSize:                 {0}\n".format(historyInfo.historySize))
+    
+    # FIXME: History download is not working reliably yet
+    #print ("Getting Pump history")
+    #history_pages = mt.getPumpHistory(historyInfo.historySize, start_date, datetime.datetime.max, HISTORY_DATA_TYPE.PUMP_DATA)
+   
+    return 0
+
+
 def readLiveData():
    return downloadPumpSession(statusDownload)
+
+
+def readHistoryData():
+   return downloadPumpSession(historyDownload)

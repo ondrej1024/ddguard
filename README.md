@@ -181,6 +181,7 @@ This project is based on other peoples work which I want to thank for their effo
 - [Lennart Goedhart](https://github.com/pazaan) who implemented the excellent [Python driver](https://github.com/pazaan/decoding-contour-next-link) for the "Contour Next Link 2.4" radio bridge to the Minimed 670G
 - [Pogman](https://github.com/Pogman) for putting up with my questions and providing me with the pointers to the details of the Nightscout uploader implementation.
 - [oldsterIL](https://github.com/oldsterIL) for contributing valuable code to the CNL2.4 driver lib
+- [gdave44](https://github.com/gdave44) for the Python3 porting and improved error checking
 
 
 

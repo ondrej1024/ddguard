@@ -202,7 +202,7 @@ class nightscout_uploader(object):
          if data["sensorStatus"]["exception"]==0:
             status = status + str(data["sensorBatteryLevelPercentage"]) + "% "
          if data["sensorCalMinutesRemaining"]>0:
-            status = status + str(data["sensorCalMinutesRemaining"]/60) +":"+str(data["sensorCalMinutesRemaining"]%60)
+            status = status + "{0}:{1:02d}h".format(int(data["sensorCalMinutesRemaining"]/60),data["sensorCalMinutesRemaining"]%60)
       else:
          status = ""
       
