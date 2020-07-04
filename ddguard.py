@@ -70,11 +70,11 @@ import syslog
 import sys
 import time
 if sys.version_info[0] < 3:
-    import thread
-    import ConfigParser
+    from thread import start_new_thread
+    from ConfigParser import ConfigParser
 else:
-    import _thread
-    import configparser
+    from _thread import start_new_thread
+    from configparser import ConfigParser
 import datetime
 import cnl24driverlib
 import nightscoutlib
@@ -143,10 +143,7 @@ def to_int(string):
 def read_config(cfilename):
    
    # Parameters from global config file
-   if sys.version_info[0] < 3:
-      config = ConfigParser.ConfigParser()
-   else:
-      config = configparser.ConfigParser()
+   config = ConfigParser()
    config.read(cfilename)
    
    #TODO: check if file exists
@@ -343,7 +340,7 @@ def upload_live_data():
             time.sleep(5)
     
    # Upload data to Blynk server
-   if blynk != None and liveData != None:
+   if blynk != None:
       try:
          blynk_upload(liveData)
       except:
@@ -359,7 +356,7 @@ def upload_live_data():
               #}
 
    # Upload data to Nighscout server
-   if nightscout != None and liveData != None:
+   if nightscout != None:
       try:
          nightscout.upload(liveData)
       except:
@@ -418,11 +415,8 @@ timer = blynktimer.Timer()
 @timer.register(interval=5, run_once=True)
 @timer.register(interval=UPDATE_INTERVAL, run_once=False)
 def timer_function():
-    # Run this as separate thread so we don't cause ping timeouts
-    if sys.version_info[0] < 3:
-        thread.start_new_thread(upload_live_data,())
-    else:
-        _thread.start_new_thread(upload_live_data,())
+   # Run this as separate thread so we don't cause ping timeouts
+   start_new_thread(upload_live_data,())
 
    
 ##########################################################           
