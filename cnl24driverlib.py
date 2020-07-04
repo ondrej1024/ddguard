@@ -14,6 +14,7 @@
 #    30/03/2020: Backport comms robustness improvements from Android uploader
 #    06/04/2020: Extract more sensor related data from pump status message
 #    13/04/2020: Return complete pump status data in statusDownload()
+#    28/06/2020: Updated syntax for Python3
 #  
 ###############################################################################
 
@@ -26,6 +27,7 @@ import crc16  # pip install crc16
 import lzo    # pip install python-lzo
 import Crypto.Cipher.AES # pip install PyCrypto
 import struct
+import datetime
 import binascii
 import sqlite3
 import hashlib
@@ -963,7 +965,7 @@ class Medtronic600SeriesDriver( object ):
 
     ERROR_CLEAR_TIMEOUT_MS   = 25000
     PRESEND_CLEAR_TIMEOUT_MS = 50
-    READ_TIMEOUT_MS          = 10000
+    READ_TIMEOUT_MS          = 25000
     CNL_READ_TIMEOUT_MS      = 2000
 
     CHANNELS = [ 0x14, 0x11, 0x0e, 0x17, 0x1a ] # In the order that the CareLink applet requests them
@@ -1030,7 +1032,7 @@ class Medtronic600SeriesDriver( object ):
         for packet in [ payload[ i: i+60 ] for i in range( 0, len( payload ), 60 ) ]:
             message = struct.pack( '>3sB', self.MAGIC_HEADER, len( packet ) ) + packet
             self.device.write( bytearray( message ) )
-            logger.debug("SEND: " + binascii.hexlify( message )) # Debugging
+            logger.debug("SEND: %s", binascii.hexlify( message )) # Debugging
 
     # Intercept unexpected messages from the CNL
     # These usually come from pump requests as it can occasionally resend message responses several times 
@@ -1693,7 +1695,7 @@ class Medtronic600SeriesDriver( object ):
 def downloadPumpSession(downloadOperations):
     mt = Medtronic600SeriesDriver()
     try:
-        mt.openDevice()
+        r = mt.openDevice()
     except:
         logger.error("downloadPumpSession: Cannot open USB device. Abandoning")
         return None
@@ -1710,7 +1712,7 @@ def downloadPumpSession(downloadOperations):
                     mt.readInfo()
                     mt.readLinkKey()
                     try:
-                        mt.negotiateChannel()
+                        r = mt.negotiateChannel()
                     except:
                         logger.error("downloadPumpSession: Cannot connect to the pump. Abandoning")
                         raise
@@ -1741,10 +1743,8 @@ def statusDownload(mt):
     
     status = mt.getPumpStatus()
 
-    print
-    print ("### Serial ###")
-    print ("CNL serial: {0}".format(mt.deviceSerial))
-    print
+    print ("\n### Serial ###")
+    print ("CNL serial: {0}\n".format(mt.deviceSerial))
     print ("### Pump status ###")
     print ("time:                 {0}".format(mt.pumpTime))
     print ("suspended:            {0}".format(status.isPumpStatusSuspended))
@@ -1753,8 +1753,7 @@ def statusDownload(mt):
     print ("bolusingDual:         {0}".format(status.isPumpStatusBolusingDual))
     print ("deliveringInsulin:    {0}".format(status.isPumpStatusDeliveringInsulin))
     print ("tempBasalActive:      {0}".format(status.isPumpStatusTempBasalActive))
-    print ("cgmActive:            {0}".format(status.isPumpStatusCgmActive))
-    print
+    print ("cgmActive:            {0}\n".format(status.isPumpStatusCgmActive))
     print ("### Pump alert ###")
     print ("alertOnHigh:          {0}".format(status.isPlgmAlertOnHigh))
     print ("alertOnLow:           {0}".format(status.isPlgmAlertOnLow))
@@ -1767,16 +1766,14 @@ def statusDownload(mt):
     print ("isAlertSilenceHigh:   {0}".format(status.isAlertSilenceHigh))
     print ("isAlertSilenceHighLow:{0}".format(status.isAlertSilenceHighLow))
     print ("isAlertSilenceAll:    {0}".format(status.isAlertSilenceAll))
-    print ("alertSilenceMinutesRemaining:{0}".format(status.alertSilenceMinutesRemaining))
-    print
+    print ("alertSilenceMinutesRemaining:{0}\n".format(status.alertSilenceMinutesRemaining))
     print ("### Sensor status ###")
     print ("calibrating:          {0}".format(status.isSensorStatusCalibrating))
     print ("calibrationComplete:  {0}".format(status.isSensorStatusCalibrationComplete))
     print ("exception:            {0}".format(status.isSensorStatusException))
     print ("sensorCalMinutesRemaining:   {0}".format(status.sensorCalMinutesRemaining))
     print ("sensorBatteryLevelPercentage:{0}".format(status.sensorBatteryLevelPercentage))
-    print ("sensorRateOfChange:          {0}".format(status.sensorRateOfChange))
-    print
+    print ("sensorRateOfChange:          {0}\n".format(status.sensorRateOfChange))
     print ("### Bolus ###")
     print ("bolusingDelivered:        {0}".format(status.bolusingDelivered))
     print ("bolusingMinutesRemaining: {0}".format(status.bolusingMinutesRemaining))
@@ -1785,8 +1782,7 @@ def statusDownload(mt):
     print ("lastBolusTime:            {0}".format(status.lastBolusTime.strftime( "%c" )))
     print ("lastBolusReference:       {0}".format(status.lastBolusReference))
     print ("recentBolusWizard:        {0}".format(status.recentBolusWizard))
-    print ("recentBGL:                {0}".format(status.recentBGL))
-    print
+    print ("recentBGL:                {0}\n".format(status.recentBGL))
     print ("### Basal ###")
     print ("activeBasalPattern:       {0}".format(status.activeBasalPattern))
     print ("activeTempBasalPattern:   {0}".format(status.activeTempBasalPattern))
@@ -1794,21 +1790,17 @@ def statusDownload(mt):
     print ("tempBasalRate:            {0}".format(status.tempBasalRate))
     print ("tempBasalPercentage:      {0}".format(status.tempBasalPercentage))
     print ("tempBasalMinutesRemaining:{0}".format(status.tempBasalMinutesRemaining))
-    print ("basalUnitsDeliveredToday: {0}".format(status.basalUnitsDeliveredToday))
-    print
+    print ("basalUnitsDeliveredToday: {0}\n".format(status.basalUnitsDeliveredToday))
     print ("### Battery ###")
-    print ("batteryLevelPercentage:   {0}".format(status.batteryLevelPercentage))
-    print               
+    print ("batteryLevelPercentage:   {0}\n".format(status.batteryLevelPercentage))
     print ("### Insulin ###")
     print ("insulinUnitsRemaining:    {0}".format(status.insulinUnitsRemaining))
     print ("minutesOfInsulinRemaining:{0}".format(status.minutesOfInsulinRemaining))
-    print ("activeInsulin:            {0}".format(status.activeInsulin))
-    print               
+    print ("activeInsulin:            {0}\n".format(status.activeInsulin))
     print ("### BGL ###")
     print ("sensorBGL:                {0}".format(status.sensorBGL))
     print ("sensorBGLTimestamp:       {0}".format(status.sensorBGLTimestamp))
-    print ("trendArrow:               {0}".format(status.trendArrow))
-    print
+    print ("trendArrow:               {0}\n".format(status.trendArrow))
     
     
     result = { # CNL serial
@@ -1884,5 +1876,26 @@ def statusDownload(mt):
     return result
 
 
+def historyDownload(mt):
+    
+    start_date = datetime.datetime.now() - datetime.timedelta(days=1)
+    historyInfo = mt.getPumpHistoryInfo(start_date, datetime.datetime.max, HISTORY_DATA_TYPE.PUMP_DATA)
+    # print (binascii.hexlify( historyInfo.responsePayload,  ))
+    
+    print ("pumpStart:                {0}".format(historyInfo.datetimeStart))
+    print ("pumpEnd:                  {0}".format(historyInfo.datetimeEnd))
+    print ("pumpSize:                 {0}\n".format(historyInfo.historySize))
+    
+    # FIXME: History download is not working reliably yet
+    #print ("Getting Pump history")
+    #history_pages = mt.getPumpHistory(historyInfo.historySize, start_date, datetime.datetime.max, HISTORY_DATA_TYPE.PUMP_DATA)
+   
+    return 0
+
+
 def readLiveData():
    return downloadPumpSession(statusDownload)
+
+
+def readHistoryData():
+   return downloadPumpSession(historyDownload)
