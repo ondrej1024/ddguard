@@ -341,14 +341,17 @@ def upload_live_data():
          if numRetries > 0:
             time.sleep(5)
    
-   # Account for pump RTC drift
+   # EXPERIMENTAL: Account for pump RTC drift:
+   # We calculate the difference between pump RTC time (from the last status response)
+   # and the system time. Then we adjust the BGL timestamp with this difference.
    if liveData:
-      print("account for pump RTC drift:")
-      print("   before: pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
-      pumpTimeDiff = liveData["pumpTime"] - datetime.datetime.now(liveData["pumpTime"].tzinfo)
-      liveData["sensorBGLTimestamp"] = liveData["sensorBGLTimestamp"] - pumpTimeDiff
-      liveData["pumpTime"] = datetime.datetime.now(liveData["pumpTime"].tzinfo)
-      print("   after:  pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
+      if liveData["pumpTime"] != None:
+         print("account for pump RTC drift:")
+         print("   before: pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
+         pumpTimeDiff = liveData["pumpTime"] - datetime.datetime.now(liveData["pumpTime"].tzinfo)
+         liveData["sensorBGLTimestamp"] -= pumpTimeDiff
+         liveData["pumpTime"] = datetime.datetime.now(liveData["pumpTime"].tzinfo)
+         print("   after:  pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
       
    # Upload data to Blynk server
    if blynk != None:
