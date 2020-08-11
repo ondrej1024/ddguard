@@ -25,10 +25,11 @@ First public release
 
 * Improved robustness of CNL2.4 driver
 
-### 06 [16/04/2020]
+### 0.6 [16/04/2020]
 
 * Parse all data in PumpStatusResponseMessage of CNL2.4 driver
-
 * Add more status data to Blynk uploader
 
-  
+### 0.7 [10/08/2020]
+* Add pump status handling to Nightscout lib
+* Python3 support

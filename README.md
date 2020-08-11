@@ -14,13 +14,13 @@ DD-Guard was inspired by the [NightScout](http://www.nightscout.info) project an
 
 ## Project Status
 
-Currently I have implemented a working prototype of DD-Guard which I use in the real world to monitor my daughters blood glucose level and pump status when she is near the gateway. On the app screen of my mobile phone I get updated data for blood glucose level (including history graph) and trend, active insulin, remaining insulin units in the pumps tank and both pump and sensor battery status. Bolus events are displayed on the graph. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon.
+My wife and I have been continuously using DD-Guard for a few months in the real world to monitor my daughters blood glucose level and pump status. On the app screen of the mobile phone we get updated data for blood glucose level (including history graph) and trend, active insulin, remaining insulin units in the pumps tank and both pump and sensor battery status (displayed alternatively). Bolus events are displayed on the graph. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon. The system is robust and running for weeks without any issues. 
 
-It is possible for my daughter to take the small gateway device with her when she is going to spend the night at a friends house, so I can still monitor her data. The gateway works as long as it has a power supply and a Wifi network connection.
+It is possible for my daughter to take the small gateway device with her when she is going to spend the night at a friends house, so we can still monitor her data. The gateway works as long as it has a power supply and a Wifi network connection.
 
-The gateway software now runs reliably on the tiny [Raspberry Pi Zero](https://www.raspberrypi.org/products/raspberry-pi-zero-w/) device which can be powered from a battery pack and therefore carried in a small backpack, making the gateway truly mobile.
+The gateway software now runs reliably also on the tiny [Raspberry Pi Zero](https://www.raspberrypi.org/products/raspberry-pi-zero-w/) device which can be powered for may hours from a battery pack and therefore carried in a small backpack, making the gateway truly mobile.
 
-A Nightscout uploader option is also available for the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used phone uploader for this system.
+A Nightscout uploader option is available for the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used Android phone uploader for this system (unless you need all the bells and whistles from the latter).
 
 
 
@@ -46,7 +46,7 @@ The DD-Guard gateway is a small single board computer, like the Raspberry Pi whe
 
 In order to use DD-Guard you need the following items:
 
-- Medtronic Minimed 670G insulin pump
+- Medtronic Minimed 670G insulin pump (also works with 640G)
 - Guardian Link blood glucose sensor and radio transmitter 
 - Contour Next Link 2.4 blood glucose meter and radio bridge
 - A single board computer with USB and Wifi like RaspberryPi 3 or similar as DD-Guard gateway
@@ -58,9 +58,7 @@ So all you need to do is build your own gateway. It needs a USB port to connect 
 
 
 
-![ddguard-gateway](img/ddguard-gw-sm.png)
-
-
+![rpi-zero-cnl24](img/rpi-zero-cnl24.jpg)
 
 ## What software do you need
 
@@ -94,21 +92,22 @@ The gateway software is a Python program which interfaces with the Contour Next 
 
 You need Python support which is installed by default on the RaspberryPi OS "Raspbian". Additionally some non standard libraries need to added.
 
-If python3 is not yet installed:
+If Python3 is not yet installed:
 
     sudo apt install python3
+    sudo apt install python3-pip
 
 ##### Install needed Python libraries:
 
-    sudo apt install python3-pip
-    sudo pip3 install blynklib
-    sudo pip3 install astm
-    sudo pip3 install crc16
     sudo apt install python3-hid python3-hidapi
     sudo apt install python3-pycryptodome
-    sudo apt install python3-lzo
     sudo apt install python3-dateutil
     sudo apt install python3-requests
+    sudo apt install liblzo2-dev
+    sudo pip3 install python-lzo
+    sudo pip3 install astm
+    sudo pip3 install crc16
+    sudo pip3 install blynklib
 
 ##### Install source code:
 
@@ -135,25 +134,28 @@ Modify the configuration parameters in `/etc/ddguard.conf` to match your setup.
 ################################################
 
 # Blynk parameters
+# (leave empty to disable Blynk uploader)
 ################################################
 [blynk]
-server =                 # Blynk server address, e.g. blynk-cloud.com
-token =                  # my personal Blynk token
-heartbeat = 20           # heartbeat period (s)
+server =              # Blynk server address, e.g. blynk-cloud.com
+token =               # my personal Blynk token
+heartbeat = 20        # heartbeat period (s)
     
 # Nightscout parameters
+# (leave empty to disable Nightscout uploader)
 ################################################
 [nightscout]
-server =                 # Nightscout server address. e.g my-ns-server.org
-api_secret =             # my Nightscout API secret
+server =              # Nightscout server address. e.g https://ns-server.org
+api_secret =          # my Nightscout API secret
 
-# BGL parameters
+# BGL alert parameters 
+# (leave empty to use pump settings)
 ################################################
 [bgl]
-bgl_low       =  80   # BGL low threshold (color data red when below)
-bgl_pre_low   = 100   # BGL pre low threshold (color data yellow when below)
-bgl_pre_high  = 160   # BGL pre high threshold (color data yellow when above)
-bgl_high      = 220   # BGL high threshold (color data red when above)
+bgl_low       =       # BGL low threshold (color data red when below)
+bgl_pre_low   =       # BGL pre low threshold (color data yellow when below)
+bgl_pre_high  =       # BGL pre high threshold (color data yellow when above)
+bgl_high      =       # BGL high threshold (color data red when above)
 ```
 
 

@@ -80,7 +80,7 @@ import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.6"
+VERSION = "0.7"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
