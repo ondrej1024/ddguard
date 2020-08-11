@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 ###############################################################################
 #  
 #  Diabetes Data Guard (DD-Guard): Gateway module
@@ -35,6 +35,9 @@
 #    03/12/2019 - Make Blynk uploader optional
 #    11/02/2020 - Add Blynk virtual pin for active insulin
 #    03/03/2020 - Improved robustness of CNL2.4 driver
+#    14/04/2020 - Adapt to new data format from CNL driver
+#    15/04/2020 - Add more status data to blynk uploader
+#    28/06/2020 - Syntax updates for Python3
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
@@ -66,13 +69,18 @@ import signal
 import syslog
 import sys
 import time
-import thread
-import ConfigParser
+if sys.version_info[0] < 3:
+    from thread import start_new_thread
+    from ConfigParser import ConfigParser
+else:
+    from _thread import start_new_thread
+    from configparser import ConfigParser
+import datetime
 import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.5"
+VERSION = "0.7"
 
 UPDATE_INTERVAL = 300
 MAX_RETRIES_AT_FAILURE = 3
@@ -84,13 +92,15 @@ VPIN_UNITS   = 3
 VPIN_ARROWS  = 4
 VPIN_STATUS  = 5
 VPIN_ACTINS  = 6
+VPIN_LASTBOLUS = 7
 
 # color definitions
+BLYNK_WHITE  = "#F0F0F0"
 BLYNK_GREEN  = "#23C48E"
 BLYNK_BLUE   = "#04C0F8"
 BLYNK_YELLOW = "#ED9D00"
 BLYNK_RED    = "#D3435C"
-
+BLYNK_DARK_BLUE = "#5F7CD8"
 
 sensor_exception_codes = {
     SENSOR_EXCEPTIONS.SENSOR_OK:               SENSOR_EXCEPTIONS.SENSOR_OK_STR,
@@ -110,8 +120,18 @@ sensor_exception_codes = {
 }
 
 is_connected = False
+lastBolusTime = None
+cycleCount = 0
 
 CONFIG_FILE = "/etc/ddguard.conf"
+
+
+def to_int(string):
+   try:
+      i = int(string)
+   except:
+      i = 0
+   return i
 
 
 #########################################################
@@ -123,7 +143,7 @@ CONFIG_FILE = "/etc/ddguard.conf"
 def read_config(cfilename):
    
    # Parameters from global config file
-   config = ConfigParser.ConfigParser()
+   config = ConfigParser()
    config.read(cfilename)
    
    #TODO: check if file exists
@@ -132,8 +152,8 @@ def read_config(cfilename):
       # Read Blynk parameters
       read_config.blynk_server    = config.get('blynk', 'server').split("#")[0].strip('"').strip("'").strip()
       read_config.blynk_token     = config.get('blynk', 'token').split("#")[0].strip('"').strip("'").strip()
-      read_config.blynk_heartbeat = int(config.get('blynk', 'heartbeat').split("#")[0].strip('"').strip("'"))
-   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+      read_config.blynk_heartbeat = to_int(config.get('blynk', 'heartbeat').split("#")[0].strip('"').strip("'"))
+   except ConfigParser.NoOptionError as NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed blynk option not found in config file")
       return False
 
@@ -141,32 +161,35 @@ def read_config(cfilename):
       # Read Nightscout parameters
       read_config.nightscout_server     = config.get('nightscout', 'server').split("#")[0].strip('"').strip("'").strip()
       read_config.nightscout_api_secret = config.get('nightscout', 'api_secret').split("#")[0].strip('"').strip("'").strip()
-   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+   except ConfigParser.NoOptionError as NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed nightscout option not found in config file")
       return False
 
    try:
-      # Read BGL parameters
-      read_config.bgl_low_val      = int(config.get('bgl', 'bgl_low').split("#")[0].strip('"').strip("'"))
-      read_config.bgl_pre_low_val  = int(config.get('bgl', 'bgl_pre_low').split("#")[0].strip('"').strip("'"))
-      read_config.bgl_pre_high_val = int(config.get('bgl', 'bgl_pre_high').split("#")[0].strip('"').strip("'"))
-      read_config.bgl_high_val     = int(config.get('bgl', 'bgl_high').split("#")[0].strip('"').strip("'"))
-   except ConfigParser.NoOptionError, ConfigParser.NoSectionError:
+      # Read BGL alert parameters
+      read_config.bgl_low_val      = to_int(config.get('bgl', 'bgl_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_low_val  = to_int(config.get('bgl', 'bgl_pre_low').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_pre_high_val = to_int(config.get('bgl', 'bgl_pre_high').split("#")[0].strip('"').strip("'"))
+      read_config.bgl_high_val     = to_int(config.get('bgl', 'bgl_high').split("#")[0].strip('"').strip("'"))
+   except ConfigParser.NoOptionError as NoSectionError:
       syslog.syslog(syslog.LOG_ERR, "ERROR - Needed bgl option not found in config file")
       return False
 
+   # Disable BGL parameters if not specified in config
+   if read_config.bgl_pre_high_val == 0:
+      read_config.bgl_pre_high_val = 1000
+   if read_config.bgl_high_val == 0:
+      read_config.bgl_high_val = 1000
+      
    print ("Blynk server:    %s" % read_config.blynk_server)
    print ("Blynk token:     %s" % read_config.blynk_token)
-   print ("Blynk heartbeat: %d" % read_config.blynk_heartbeat)
-   print
+   print ("Blynk heartbeat: %d\n" % read_config.blynk_heartbeat)
    print ("Nightscout server:     %s" % read_config.nightscout_server)
-   print ("Nightscout api_secret: %s" % read_config.nightscout_api_secret)
-   print
+   print ("Nightscout api_secret: %s\n" % read_config.nightscout_api_secret)
    print ("BGL low:      %d" % read_config.bgl_low_val)
    print ("BGL pre low:  %d" % read_config.bgl_pre_low_val)
    print ("BGL pre high: %d" % read_config.bgl_pre_high_val)
-   print ("BGL high:     %d" % read_config.bgl_high_val)
-   print
+   print ("BGL high:     %d\n" % read_config.bgl_high_val)
    return True
 
     
@@ -194,49 +217,89 @@ def on_sigterm(signum, frame):
 #########################################################
 def blynk_upload(data):
 
+   global lastBolusTime
+   global cycleCount
+   
    if data != None:
-      print "Uploading data to Blynk"
+      print("Uploading data to Blynk")
        
       # Send sensor data
-      if data["bgl"] in sensor_exception_codes:
-         # Special status code
+      if data["sensorBGL"] in sensor_exception_codes:
+         # Sensor exception occured
+         
+         # BGL gauge
          blynk.virtual_write(VPIN_SENSOR, None)
-         blynk.virtual_write(VPIN_ARROWS, "--")
-         blynk.virtual_write(VPIN_STATUS, sensor_exception_codes[data["bgl"]])
+         blynk.set_property(VPIN_SENSOR, "color", BLYNK_WHITE)
+         
+         # Trend and active insulin
+         blynk.virtual_write(VPIN_ARROWS, "--"+" / "+str(data["activeInsulin"]))
+         
+         # Status line
+         blynk.virtual_write(VPIN_STATUS, datetime.datetime.now().strftime("%H:%M")+" - "+sensor_exception_codes[data["sensorBGL"]])
          blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
       else:
          # Regular BGL data
-         blynk.virtual_write(VPIN_SENSOR, data["bgl"])
-         if data["bgl"] < read_config.bgl_low_val:
+         
+         # BLG gauge
+         blynk.virtual_write(VPIN_SENSOR, data["sensorBGL"])
+         if data["pumpAlert"]["alertSuspend"] or data["pumpAlert"]["alertSuspendLow"]:
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_BLUE)
+         elif data["sensorBGL"] < read_config.bgl_low_val or data["sensorBGL"] > read_config.bgl_high_val or \
+              data["pumpAlert"]["alertOnLow"] or data["pumpAlert"]["alertOnHigh"]:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)
-         elif data["bgl"] < read_config.bgl_pre_low_val:
-            blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
-         elif data["bgl"] < read_config.bgl_pre_high_val:
-            blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
-         elif data["bgl"] < read_config.bgl_high_val:
+         elif data["sensorBGL"] < read_config.bgl_pre_low_val or data["sensorBGL"] > read_config.bgl_pre_high_val or \
+              data["pumpAlert"]["alertBeforeLow"] or data["pumpAlert"]["alertBeforeHigh"]:
             blynk.set_property(VPIN_SENSOR, "color", BLYNK_YELLOW)
          else:
-            blynk.set_property(VPIN_SENSOR, "color", BLYNK_RED)             
-         blynk.virtual_write(VPIN_ARROWS, str(data["trend"])+" / "+str(data["actins"]))
-         blynk.virtual_write(VPIN_STATUS, "Last update "+str(data["time"]).split(' ')[1].split('.')[0])
+            blynk.set_property(VPIN_SENSOR, "color", BLYNK_GREEN)
+         
+         # Trend and active insulin
+         blynk.virtual_write(VPIN_ARROWS, str(data["trendArrow"])+" / "+str(data["activeInsulin"]))
+         
+         # Status line
+         calTime = "Cal in {0}:{1:02d}h".format(int(data["sensorCalMinutesRemaining"]/60),data["sensorCalMinutesRemaining"]%60)
+         blynk.virtual_write(VPIN_STATUS, "Updated "+data["sensorBGLTimestamp"].strftime("%H:%M")+" - "+calTime)
          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
        
       # Send pump data
-      blynk.virtual_write(VPIN_BATTERY, data["batt"])
-      if data["batt"] <= 25:
+
+      # Battery bar
+      # Alternate pump and sensor battery
+      if cycleCount%2 == 0:
+         data_batt = data["batteryLevelPercentage"]
+         label_batt = "PUMP BATTERY %"
+      else:
+         data_batt = data["sensorBatteryLevelPercentage"]
+         label_batt = "SENSOR BATTERY %"
+      blynk.set_property(VPIN_BATTERY, "label", label_batt)
+      blynk.virtual_write(VPIN_BATTERY, data_batt)
+      if data_batt <= 25:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_RED)
-      elif data["batt"] <= 50:
+      elif data_batt <= 50:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_YELLOW)
       else:
          blynk.set_property(VPIN_BATTERY, "color", BLYNK_GREEN)
-      blynk.virtual_write(VPIN_UNITS,   data["unit"])
-      if data["unit"] <= 25:
+      
+      # Reservoir bar
+      blynk.virtual_write(VPIN_UNITS, int(round(data["insulinUnitsRemaining"])))
+      if data["insulinUnitsRemaining"] <= 25:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_RED)
-      elif data["unit"] <= 75:
+      elif data["insulinUnitsRemaining"] <= 75:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_YELLOW)
       else:
          blynk.set_property(VPIN_UNITS, "color", BLYNK_GREEN)
-      blynk.virtual_write(VPIN_ACTINS,   data["actins"])
+         
+      # Active insulin / last bolus graph
+      if int(data["lastBolusTime"].strftime("%s")) != lastBolusTime: 
+         print("Bolus time changed")
+         lastBolusTime = int(data["lastBolusTime"].strftime("%s"))
+         # Check if last bolus time is recent
+         if int(time.time()) - lastBolusTime < 2*UPDATE_INTERVAL:
+            print("Bolus time is recent")
+            blynk.virtual_write(VPIN_LASTBOLUS, data["lastBolusAmount"])
+      else:
+         blynk.virtual_write(VPIN_ACTINS, data["activeInsulin"])
+      
    else:
       syslog.syslog(syslog.LOG_ERR, "Unable to get data from pump")
       blynk.set_property(VPIN_STATUS, "color", BLYNK_RED)
@@ -253,13 +316,15 @@ def blynk_upload(data):
 #########################################################
 def upload_live_data():
    
+   global cycleCount
+      
    # Guard against multiple threads
    if upload_live_data.active:
       return
     
    upload_live_data.active = True
    
-   print "read live data from pump"
+   print("read live data from pump")
    hasFailed = True
    numRetries = MAX_RETRIES_AT_FAILURE
    while hasFailed and numRetries > 0:
@@ -267,7 +332,7 @@ def upload_live_data():
          liveData = cnl24driverlib.readLiveData()
          hasFailed = False
       except:
-         print "unexpected ERROR occured while reading live data"
+         print("unexpected ERROR occured while reading live data")
          syslog.syslog(syslog.LOG_ERR, "Unexpected ERROR occured while reading live data")
          liveData = None
          numRetries -= 1
@@ -276,7 +341,10 @@ def upload_live_data():
     
    # Upload data to Blynk server
    if blynk != None:
-      blynk_upload(liveData)
+      try:
+         blynk_upload(liveData)
+      except:
+         syslog.syslog(syslog.LOG_ERR, "Blynk upload ERROR")
 
    # TEST
    #liveData = {"actins":0.5, 
@@ -289,8 +357,12 @@ def upload_live_data():
 
    # Upload data to Nighscout server
    if nightscout != None:
-      nightscout.upload(liveData)
+      try:
+         nightscout.upload(liveData)
+      except:
+         syslog.syslog(syslog.LOG_ERR, "Nightscout upload ERROR")
     
+   cycleCount += 1
    upload_live_data.active = False
 
 
@@ -307,7 +379,7 @@ nightscout_enabled = (read_config.nightscout_server != "") and (read_config.nigh
 
 # Init Blynk instance
 if blynk_enabled:
-   print "Blynk upload is enabled"
+   print("Blynk upload is enabled")
    blynk = blynklib.Blynk(read_config.blynk_token,
                           server=read_config.blynk_server.strip(),
                           heartbeat=read_config.blynk_heartbeat)
@@ -317,7 +389,7 @@ if blynk_enabled:
       global is_connected
       if not is_connected:
          is_connected = True
-         print('Connected to cloud server')
+         print("Connected to cloud server")
          syslog.syslog(syslog.LOG_NOTICE, "Connected to cloud server")
 
    @blynk.handle_event("disconnect")
@@ -325,14 +397,14 @@ if blynk_enabled:
       global is_connected
       if is_connected:
          is_connected = False
-         print('Disconnected from cloud server')
+         print("Disconnected from cloud server")
          syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
 else:
    blynk = None
 
 # Init Nighscout instance (if requested)
 if nightscout_enabled:
-   print "Nightscout upload is enabled"
+   print("Nightscout upload is enabled")
    nightscout = nightscoutlib.nightscout_uploader(server = read_config.nightscout_server, 
                                                   secret = read_config.nightscout_api_secret)
 else:
@@ -343,8 +415,8 @@ timer = blynktimer.Timer()
 @timer.register(interval=5, run_once=True)
 @timer.register(interval=UPDATE_INTERVAL, run_once=False)
 def timer_function():
-    # Run this as separate thread so we don't cause ping timeouts
-    thread.start_new_thread(upload_live_data,())
+   # Run this as separate thread so we don't cause ping timeouts
+   start_new_thread(upload_live_data,())
 
    
 ##########################################################           
@@ -357,7 +429,6 @@ signal.signal(signal.SIGINT, on_sigterm)
 signal.signal(signal.SIGTERM, on_sigterm)
 
 upload_live_data.active = False
-
 
 ##########################################################           
 # Main loop

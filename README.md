@@ -14,13 +14,13 @@ DD-Guard was inspired by the [NightScout](http://www.nightscout.info) project an
 
 ## Project Status
 
-Currently I have implemented a working prototype of DD-Guard which I use in the real world to monitor my daughters blood glucose level and pump status at night when she is in her room where the gateway is located. On the app screen of my mobile phone I get updated data for blood glucose level (including history graph) and trend, active insulin, remaining insulin units in the pumps tank and battery status. Basal rate  could be added. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon.
+My wife and I have been continuously using DD-Guard for a few months in the real world to monitor my daughters blood glucose level and pump status. On the app screen of the mobile phone we get updated data for blood glucose level (including history graph) and trend, active insulin, remaining insulin units in the pumps tank and both pump and sensor battery status (displayed alternatively). Bolus events are displayed on the graph. The displayed data is color coded according to the actual conditions so it is immediately clear if there is anything critical which needs to be acted upon. The system is robust and running for weeks without any issues. 
 
-It is possible for my daughter to take the small gateway device with her when she is going to spend the night at a friends house, so I could still monitor her data. The gateway works as long as it has a power supply and a Wifi network connection.
+It is possible for my daughter to take the small gateway device with her when she is going to spend the night at a friends house, so we can still monitor her data. The gateway works as long as it has a power supply and a Wifi network connection.
 
-The gateway software now runs on the tiny [Raspberry Pi Zero](https://www.raspberrypi.org/products/raspberry-pi-zero-w/) which can be powered from a battery pack and therefore carried in a small backpack, making the gateway truly mobile.
+The gateway software now runs reliably also on the tiny [Raspberry Pi Zero](https://www.raspberrypi.org/products/raspberry-pi-zero-w/) device which can be powered for may hours from a battery pack and therefore carried in a small backpack, making the gateway truly mobile.
 
-A Nightscout uploader option is also available for the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used phone uploader for this system.
+A Nightscout uploader option is available for the DD-Guard gateway, so it can upload the live sensor and pump data also to a Nightscout server and replace the commonly used Android phone uploader for this system (unless you need all the bells and whistles from the latter).
 
 
 
@@ -46,7 +46,7 @@ The DD-Guard gateway is a small single board computer, like the Raspberry Pi whe
 
 In order to use DD-Guard you need the following items:
 
-- Medtronic Minimed 670G insulin pump
+- Medtronic Minimed 670G insulin pump (also works with 640G)
 - Guardian Link blood glucose sensor and radio transmitter 
 - Contour Next Link 2.4 blood glucose meter and radio bridge
 - A single board computer with USB and Wifi like RaspberryPi 3 or similar as DD-Guard gateway
@@ -58,9 +58,7 @@ So all you need to do is build your own gateway. It needs a USB port to connect 
 
 
 
-![ddguard-gateway](img/ddguard-gw-sm.png)
-
-
+![rpi-zero-cnl24](img/rpi-zero-cnl24.jpg)
 
 ## What software do you need
 
