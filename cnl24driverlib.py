@@ -15,6 +15,7 @@
 #    06/04/2020: Extract more sensor related data from pump status message
 #    13/04/2020: Return complete pump status data in statusDownload()
 #    28/06/2020: Updated syntax for Python3
+#    09/11/2020: Add calculation of pump time drift
 #  
 ###############################################################################
 
@@ -1247,6 +1248,13 @@ class Medtronic600SeriesDriver( object ):
             return None
         else:
             return self.datetime
+
+    @property
+    def pumpTimeDrift( self ):
+        if not self.drift:
+            return None
+        else:
+            return self.drift
          
     def getDeviceInfo( self ):
         logger.info("# Read Device Info")
@@ -1448,6 +1456,7 @@ class Medtronic600SeriesDriver( object ):
         result = self.getMedtronicMessage([COM_D_COMMAND.TIME_RESPONSE])
         self.datetime = result.datetime
         self.offset = result.offset
+        self.drift = datetime.datetime.now(result.datetime.tzinfo) - self.datetime
         return result
 
     def getPumpStatus( self ):
@@ -1747,6 +1756,7 @@ def statusDownload(mt):
     print ("CNL serial: {0}\n".format(mt.deviceSerial))
     print ("### Pump status ###")
     print ("time:                 {0}".format(mt.pumpTime))
+    print ("drift:                {0}".format(mt.pumpTimeDrift))
     print ("suspended:            {0}".format(status.isPumpStatusSuspended))
     print ("bolusingNormal:       {0}".format(status.isPumpStatusBolusingNormal))
     print ("bolusingSquare:       {0}".format(status.isPumpStatusBolusingSquare))
@@ -1808,6 +1818,7 @@ def statusDownload(mt):
                
                # Pump time
                "pumpTime":mt.pumpTime,
+               "pumpTimeDrift":mt.pumpTimeDrift,
                
                # Pump status
                "pumpStatus":{"suspended":status.isPumpStatusSuspended,
