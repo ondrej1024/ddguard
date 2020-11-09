@@ -38,6 +38,8 @@
 #    14/04/2020 - Adapt to new data format from CNL driver
 #    15/04/2020 - Add more status data to blynk uploader
 #    28/06/2020 - Syntax updates for Python3
+#    09/11/2020 - Replace Blynk timer with Python timer,
+#                 Account for Pump Time drift
 #
 #  TODO:
 #    - Upload missed data when the pump returns into range
@@ -64,25 +66,25 @@
 ###############################################################################
 
 import blynklib
-import blynktimer
 import signal
 import syslog
 import sys
 import time
+import threading 
 if sys.version_info[0] < 3:
-    from thread import start_new_thread
     from ConfigParser import ConfigParser
 else:
-    from _thread import start_new_thread
     from configparser import ConfigParser
 import datetime
 import cnl24driverlib
 import nightscoutlib
 from sensor_codes import SENSOR_EXCEPTIONS
 
-VERSION = "0.7"
+VERSION = "0.8"
 
 UPDATE_INTERVAL = 300
+RETRY_INTERVAL  = 180
+RETRY_DELAY     = 5
 MAX_RETRIES_AT_FAILURE = 3
 
 # virtual pin definitions
@@ -121,6 +123,7 @@ sensor_exception_codes = {
 
 is_connected = False
 lastBolusTime = None
+cycleTimer = None
 cycleCount = 0
 
 CONFIG_FILE = "/etc/ddguard.conf"
@@ -200,9 +203,10 @@ def read_config(cfilename):
 # 
 #########################################################
 def on_sigterm(signum, frame):
-
+   global cycleTimer
    try:
       blynk.disconnect()
+      cycleTimer.cancel()
    except:
       pass
    syslog.syslog(syslog.LOG_NOTICE, "Exiting DD-Guard daemon")
@@ -317,6 +321,7 @@ def blynk_upload(data):
 def upload_live_data():
    
    global cycleCount
+   global cycleTimer
       
    # Guard against multiple threads
    if upload_live_data.active:
@@ -337,7 +342,15 @@ def upload_live_data():
          liveData = None
          numRetries -= 1
          if numRetries > 0:
-            time.sleep(5)
+            time.sleep(RETRY_DELAY)
+            
+   # Account for pump RTC drift
+   if liveData != None:
+      print("account for pump RTC drift:")
+      print("   before: pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
+      liveData["pumpTime"] += liveData["pumpTimeDrift"]
+      liveData["sensorBGLTimestamp"] += liveData["pumpTimeDrift"]
+      print("   after : pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
     
    # Upload data to Blynk server
    if blynk != None:
@@ -353,7 +366,7 @@ def upload_live_data():
                #"trend":2,
                #"unit":60,
                #"batt":25
-              #}
+               #}
 
    # Upload data to Nighscout server
    if nightscout != None:
@@ -361,7 +374,22 @@ def upload_live_data():
          nightscout.upload(liveData)
       except:
          syslog.syslog(syslog.LOG_ERR, "Nightscout upload ERROR")
-    
+   
+   # Calculate time until next reading
+   if liveData != None:
+      nextReading = liveData["sensorBGLTimestamp"] + datetime.timedelta(seconds=UPDATE_INTERVAL)
+      tmoSeconds  = int((nextReading - datetime.datetime.now(liveData["pumpTime"].tzinfo)).total_seconds())
+      print("Next reading at {0}, {1} seconds from now\n".format(nextReading,tmoSeconds))
+      if tmoSeconds < 0:
+         tmoSeconds = 0
+   else:
+      tmoSeconds = RETRY_INTERVAL
+      print("Retry reading {0} seconds from now\n".format(tmoSeconds))
+      
+   # Start timer for next cycle
+   cycleTimer = threading.Timer(tmoSeconds+10, upload_live_data)
+   cycleTimer.start()
+   
    cycleCount += 1
    upload_live_data.active = False
 
@@ -410,15 +438,7 @@ if nightscout_enabled:
 else:
    nightscout = None
 
-# Register timer function   
-timer = blynktimer.Timer()
-@timer.register(interval=5, run_once=True)
-@timer.register(interval=UPDATE_INTERVAL, run_once=False)
-def timer_function():
-   # Run this as separate thread so we don't cause ping timeouts
-   start_new_thread(upload_live_data,())
 
-   
 ##########################################################           
 # Initialization
 ##########################################################           
@@ -430,10 +450,16 @@ signal.signal(signal.SIGTERM, on_sigterm)
 
 upload_live_data.active = False
 
+# Perform first upload immediately
+# Subsequent uploads will be scheduled according to received data timestamp
+t = threading.Thread(target=upload_live_data, args=())
+t.start()
+
 ##########################################################           
 # Main loop
 ##########################################################           
 while True:
    if blynk_enabled:
       blynk.run()
-   timer.run() 
+   else:
+      time.sleep(0.1)
