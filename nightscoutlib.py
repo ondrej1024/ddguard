@@ -159,14 +159,14 @@ class nightscout_uploader(object):
       payload = {
             "device":self.device+data["serial"],
             "type":"sgv",
-            "dateString":date.strftime("%c"),
+            "dateString":date.isoformat(),
             "date":int(date.strftime("%s"))*1000,
             "sgv":sgv,
             "direction":trend_str
          }
-      #print "url: " + url
-      #print "headers: "+json.dumps(self.headers)
-      #print "payload: "+json.dumps(payload)
+      #print("url: " + url)
+      #print("headers: "+json.dumps(self.headers))
+      #print("payload: "+json.dumps(payload))
       
       try:
          #print "Send API request"
