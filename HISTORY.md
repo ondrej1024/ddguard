@@ -33,3 +33,11 @@ First public release
 ### 0.7 [10/08/2020]
 * Add pump status handling to Nightscout lib
 * Python3 support
+
+### 0.8 [23/11/2020]
+
+* Account for pump time drift
+
+* Sync pump status and sensor data download with BGL timestamp for faster update
+
+  
