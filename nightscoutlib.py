@@ -146,7 +146,7 @@ class nightscout_uploader(object):
       
       # Check for "lost sensor" condition
       # We don't upload any sensor data in this case
-      if (sgv == 0) and (trend == -3) and (date.strftime("%c").find("01:00:00 1970") != -1):
+      if (sgv == 0) and (trend == -3): # and (date.strftime("%c").find("01:00:00 1970") != -1):
          print("Sensor lost, not uploading SGV data")
          return False
       
