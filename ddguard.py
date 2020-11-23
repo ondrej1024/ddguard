@@ -126,6 +126,9 @@ lastBolusTime = None
 cycleTimer = None
 cycleCount = 0
 
+blynk = None
+nightscout = None
+
 CONFIG_FILE = "/etc/ddguard.conf"
 
 
@@ -203,10 +206,14 @@ def read_config(cfilename):
 # 
 #########################################################
 def on_sigterm(signum, frame):
-   global cycleTimer
    try:
-      blynk.disconnect()
-      cycleTimer.cancel()
+      if blynk != None:
+         blynk.disconnect()
+   except:
+      pass
+   try:
+      if cycleTimer != None:
+         cycleTimer.cancel()
    except:
       pass
    syslog.syslog(syslog.LOG_NOTICE, "Exiting DD-Guard daemon")
@@ -261,7 +268,7 @@ def blynk_upload(data):
          blynk.virtual_write(VPIN_ARROWS, str(data["trendArrow"])+" / "+str(data["activeInsulin"]))
          
          # Status line
-         calTime = "Cal in {0}:{1:02d}h".format(int(data["sensorCalMinutesRemaining"]/60),data["sensorCalMinutesRemaining"]%60)
+         calTime = "Cal at {0}".format((data["sensorBGLTimestamp"] + datetime.timedelta(minutes=data["sensorCalMinutesRemaining"])).strftime("%H:%M"))
          blynk.virtual_write(VPIN_STATUS, "Updated "+data["sensorBGLTimestamp"].strftime("%H:%M")+" - "+calTime)
          blynk.set_property(VPIN_STATUS, "color", BLYNK_GREEN)
        
@@ -349,7 +356,8 @@ def upload_live_data():
       print("account for pump RTC drift:")
       print("   before: pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
       liveData["pumpTime"] += liveData["pumpTimeDrift"]
-      liveData["sensorBGLTimestamp"] += liveData["pumpTimeDrift"]
+      if liveData["sensorBGL"] != SENSOR_EXCEPTIONS.SENSOR_LOST:
+         liveData["sensorBGLTimestamp"] += liveData["pumpTimeDrift"]
       print("   after : pumpTime {0},  sensorBGLTimestamp {1}".format(liveData["pumpTime"], liveData["sensorBGLTimestamp"]))
     
    # Upload data to Blynk server
@@ -358,15 +366,6 @@ def upload_live_data():
          blynk_upload(liveData)
       except:
          syslog.syslog(syslog.LOG_ERR, "Blynk upload ERROR")
-
-   # TEST
-   #liveData = {"actins":0.5, 
-               #"bgl":778,
-               #"time":"111",
-               #"trend":2,
-               #"unit":60,
-               #"batt":25
-               #}
 
    # Upload data to Nighscout server
    if nightscout != None:
@@ -381,7 +380,7 @@ def upload_live_data():
       tmoSeconds  = int((nextReading - datetime.datetime.now(liveData["pumpTime"].tzinfo)).total_seconds())
       print("Next reading at {0}, {1} seconds from now\n".format(nextReading,tmoSeconds))
       if tmoSeconds < 0:
-         tmoSeconds = 0
+         tmoSeconds = RETRY_INTERVAL
    else:
       tmoSeconds = RETRY_INTERVAL
       print("Retry reading {0} seconds from now\n".format(tmoSeconds))
@@ -427,16 +426,12 @@ if blynk_enabled:
          is_connected = False
          print("Disconnected from cloud server")
          syslog.syslog(syslog.LOG_NOTICE, "Disconnected from cloud server")
-else:
-   blynk = None
 
 # Init Nighscout instance (if requested)
 if nightscout_enabled:
    print("Nightscout upload is enabled")
    nightscout = nightscoutlib.nightscout_uploader(server = read_config.nightscout_server, 
                                                   secret = read_config.nightscout_api_secret)
-else:
-   nightscout = None
 
 
 ##########################################################           
