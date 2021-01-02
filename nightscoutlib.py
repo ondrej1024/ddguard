@@ -20,6 +20,7 @@
 #    14/04/2020 - Adapt to new data format from CNL driver
 #    27/04/2020 - Add pump status handling
 #    28/06/2020 - Syntax updates for Python3
+#    02/01/2021 - Upload latest bolus
 #
 #  Copyright 2019-2020, Ondrej Wisniewski 
 #  
@@ -89,6 +90,7 @@ class nightscout_uploader(object):
                            "Content-Type":"application/json",
                            "api-secret":self.api_secret
                         }
+      self.latest_bolus = 0
       
    # Trend mapping
    def direction_str(self, trend):
@@ -245,6 +247,60 @@ class nightscout_uploader(object):
       # TODO: delete old entries
    
       return rc
+
+
+   #########################################################
+   #
+   # Function:    upload_bolus()
+   # Description: Upload last bolus data via the
+   #              treatments/API endpoint.
+   # 
+   #########################################################
+   def upload_bolus(self, data):
+
+      rc = True
+
+      if self.latest_bolus == data["lastBolusReference"]:
+          # latest bolus entry already uploaded -> skipping upload
+          return rc
+
+      url = self.ns_url + self.api_base + "treatments"
+      date = data["lastBolusTime"]
+
+      # TODO: send carbs and decide between correction- and
+      #        "meals bolus" as eventType
+      payload = {
+         "eventType": "Correction Bolus",
+         "created_at": int(date.strftime("%s"))*1000,
+         "glucose": data["recentBGL"] or None,
+         "insulin": data["lastBolusAmount"],
+         "device": self.device+data["serial"],
+      }
+
+      #print("url: " + url)
+      #print("payload: "+json.dumps(payload))
+
+      try:
+         #print "Send API request"
+         r = requests.post(url, headers = self.headers, data = json.dumps(payload))
+         #print(r)
+         #print "API response: "+r.text
+         if r.status_code != requests.codes.ok:
+            syslog.syslog(syslog.LOG_ERR, "Uploading bolus record returned error "+str(r.status_code))
+            rc = False
+            pass
+         else:
+            self.latest_bolus = data["lastBolusReference"]
+            print("...uploaded new bolus entry")
+            pass
+      except:
+         #print("Uploading bolus record failed with exception")
+         syslog.syslog(syslog.LOG_ERR, "Uploading bolus record failed with exception")
+         rc = False
+   
+      # TODO: retrive old entries
+
+      return rc
    
 
    #########################################################
@@ -265,5 +321,9 @@ class nightscout_uploader(object):
    
          # Upload pump data
          rc &= self.upload_devicestatus(data)
+
+         # Upload last bolus
+         rc &= self.upload_bolus(data)
+
 
       return rc   
