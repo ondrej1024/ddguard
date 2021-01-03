@@ -378,9 +378,10 @@ def upload_live_data():
    if liveData != None:
       nextReading = liveData["sensorBGLTimestamp"] + datetime.timedelta(seconds=UPDATE_INTERVAL)
       tmoSeconds  = int((nextReading - datetime.datetime.now(liveData["pumpTime"].tzinfo)).total_seconds())
-      print("Next reading at {0}, {1} seconds from now\n".format(nextReading,tmoSeconds))
       if tmoSeconds < 0:
          tmoSeconds = RETRY_INTERVAL
+         nextReading = datetime.datetime.now() + datetime.timedelta(seconds=tmoSeconds)
+      print("Next reading at {0}, {1} seconds from now\n".format(nextReading,tmoSeconds))
    else:
       tmoSeconds = RETRY_INTERVAL
       print("Retry reading {0} seconds from now\n".format(tmoSeconds))
