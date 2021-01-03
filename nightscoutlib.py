@@ -21,6 +21,7 @@
 #    27/04/2020 - Add pump status handling
 #    28/06/2020 - Syntax updates for Python3
 #    02/01/2021 - Upload latest bolus
+#    03/01/2021 - Upload current basal as temp basal
 #
 #  Copyright 2019-2020, Ondrej Wisniewski 
 #  
@@ -301,6 +302,51 @@ class nightscout_uploader(object):
       # TODO: retrive old entries
 
       return rc
+
+
+   #########################################################
+   #
+   # Function:    upload_currentBasal()
+   # Description: Upload current basal data as temp basal
+   #              because we aren't able to compare to the
+   #              actual basal profile yet. This also works
+   #              for AutoMode.
+   # 
+   #########################################################
+   def upload_currentBasal(self, data):
+
+      rc = True
+      url = self.ns_url + self.api_base + "treatments"
+      date = data["sensorBGLTimestamp"]
+
+      # TODO: read profile and compare microbolus to profile
+      payload = {
+         "eventType": "Temp Basal",
+         "device": self.device+data["serial"],
+         "created_at": int(date.strftime("%s"))*1000,
+         "absolute": data["currentBasalRate"],
+         "duration": 5,
+      }
+
+      #print("url: " + url)
+      #print("payload: "+json.dumps(payload))
+
+      try:
+         #print "Send API request"
+         r = requests.post(url, headers = self.headers, data = json.dumps(payload))
+         #print(r)
+         #print("API response: "+r.text)
+         if r.status_code != requests.codes.ok:
+            syslog.syslog(syslog.LOG_ERR, "Uploading basal record returned error "+str(r.status_code))
+            rc = False
+      except:
+         #print("Uploading basal record failed with exception")
+         syslog.syslog(syslog.LOG_ERR, "Uploading basal record failed with exception")
+         rc = False
+   
+      # TODO: retrive old entries
+
+      return rc
    
 
    #########################################################
@@ -324,6 +370,9 @@ class nightscout_uploader(object):
 
          # Upload last bolus
          rc &= self.upload_bolus(data)
+
+         # Upload current basal as temp basal
+         rc &= self.upload_currentBasal(data)
 
 
       return rc   
