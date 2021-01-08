@@ -184,6 +184,7 @@ This project is based on other peoples work which I want to thank for their effo
 - [Pogman](https://github.com/Pogman) for putting up with my questions and providing me with the pointers to the details of the Nightscout uploader implementation.
 - [oldsterIL](https://github.com/oldsterIL) for contributing valuable code to the CNL2.4 driver lib
 - [David Hamilton](https://github.com/gdave44) for the Python3 porting and improved error checking
+- [Linus H.](https://github.com/linus-ha) for adding bolus and current basal upload to Nightscout
 
 
 
