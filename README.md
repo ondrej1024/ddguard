@@ -1,5 +1,7 @@
 # DD-Guard (Diabetes Data Guard)
 
+**NOTE**: this project is *no longer maintained*. My daughter does not use the Medtronic Minimed 670G pump anymore and the Blynk service I used for the app is switched off now. If anyone wants to continue from where I left off, please let me know.
+
 ## What it is
 
 DD-Guard provides real time blood glucose and pump data for the "*[Medtronic Minimed 670G](https://www.medtronicdiabetes.com/products/minimed-670g-insulin-pump-system)*"  insulin pump system directly to your smart phone. It intends to be simple to use and easy to setup.
